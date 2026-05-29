@@ -324,23 +324,11 @@ def create_video(image_paths: list[Path], cafe_name: str, output_path: Path) -> 
         for img in image_paths:
             inputs += ["-loop", "1", "-t", str(SLIDE_DURATION), "-i", str(img)]
 
-        # Scale all inputs to 1080x1080, concatenate, add text on last slide
-        text_start = SLIDE_DURATION * 3   # 11.25 s
-        # Sanitize cafe name for ffmpeg drawtext — strip chars that break the filter
-        safe_name = re.sub(r"[:\\'\[\]{}]", "", cafe_name).strip()
-
         filter_parts = []
         for i in range(4):
             filter_parts.append(f"[{i}:v]scale=720:720:force_original_aspect_ratio=increase,crop=720:720,setsar=1[v{i}]")
 
-        filter_parts.append("[v0][v1][v2][v3]concat=n=4:v=1:a=0[base]")
-        filter_parts.append(
-            f"[base]drawtext=text='{safe_name}':"
-            f"fontsize=52:fontcolor=white:"
-            f"x=(w-text_w)/2:y=h-120:"
-            f"enable='gte(t,{text_start})':"
-            f"box=1:boxcolor=black@0.55:boxborderw=12[out]"
-        )
+        filter_parts.append("[v0][v1][v2][v3]concat=n=4:v=1:a=0[out]")
 
         filter_complex = ";".join(filter_parts)
 
