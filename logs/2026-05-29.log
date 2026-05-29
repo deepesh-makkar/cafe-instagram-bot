@@ -25,3 +25,14 @@ Error parsing global options: Filter not found
 
 06:23:23  INFO      Sending email with caption only — video skipped.
 06:23:24  INFO      Done! Have a great day at the cafe. ☕
+06:29:09  INFO      Chapas - Chai Ki Pyaas — Daily Instagram Post Generator starting
+06:29:10  INFO      Today's item: Adrak Chai  (#2 of 91)
+06:29:17  INFO      Caption generated:
+----------------------------------------
+Kuch din hote hain jab sirf ek kaam karta hai — ek gehri saans lena aur haath mein ek kadak Adrak Chai pakad lena. 🫚☕ Hamari Adrak Chai mein taaza adrak ka wo teekha, warm kick hai jo andar tak chain de jaata hai — ekdum ghar jaisa feel. Whether you're shaking off the Monday blues ya bas apne yaar ka wait kar rahe ho, yeh wali chai har baar sahi lagti hai. Aa jao, tumhara cup ready hai. 🤍
+
+#ChapasChaiKiPyaas #AdrakChai #MalviyaNagarJaipur #ChaiLovers #JaipurCafe
+----------------------------------------
+06:29:17  INFO      Generating slideshow video...
+06:30:00  INFO      Video saved: 2026-05-29.mp4
+06:30:03  INFO      Done! Have a great day at the cafe. ☕
