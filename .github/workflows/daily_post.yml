@@ -23,19 +23,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache ffmpeg
-        uses: actions/cache@v4
-        id: cache-ffmpeg
-        with:
-          path: /usr/bin/ffmpeg
-          key: ffmpeg-${{ runner.os }}-v2
-
       - name: Install ffmpeg
-        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --fix-missing ffmpeg || true
-          ffmpeg -version
+        uses: federicocarboni/setup-ffmpeg@v3
 
       - name: Install dependencies
         run: pip install -r requirements.txt
