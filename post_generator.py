@@ -249,7 +249,6 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
 
 SLIDE_DURATION = 3.75   # seconds per slide  (4 × 3.75 = 15 s total)
 FPS            = 25
-FRAMES         = int(SLIDE_DURATION * FPS)  # 94 frames per slide
 OUTPUT_SIZE    = "1080x1080"
 
 
@@ -257,42 +256,8 @@ def _check_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
-def _make_clip(image_path: Path, clip_path: Path, zoom_direction: str = "in") -> None:
-    """Convert a still image into a Ken Burns clip (slow zoom in or out)."""
-    if zoom_direction == "in":
-        # Start at 1.0, zoom in to 1.2
-        zoom_expr = "min(zoom+0.0008,1.2)"
-        x_expr    = "iw/2-(iw/zoom/2)"
-        y_expr    = "ih/2-(ih/zoom/2)"
-    else:
-        # Start at 1.2, zoom out to 1.0
-        zoom_expr = "max(zoom-0.0008,1.0)"
-        x_expr    = "iw/2-(iw/zoom/2)"
-        y_expr    = "ih/2-(ih/zoom/2)"
-
-    zoompan = (
-        f"zoompan=z='{zoom_expr}':"
-        f"x='{x_expr}':y='{y_expr}':"
-        f"d={FRAMES}:s={OUTPUT_SIZE},setsar=1"
-    )
-    vf = f"scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080,{zoompan}"
-
-    subprocess.run(
-        [
-            "ffmpeg", "-y",
-            "-loop", "1", "-t", str(SLIDE_DURATION),
-            "-i", str(image_path),
-            "-vf", vf,
-            "-r", str(FPS),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            str(clip_path),
-        ],
-        check=True, capture_output=True,
-    )
-
-
 def create_video(image_paths: list[Path], cafe_name: str, output_path: Path) -> Path:
-    """Stitch 4 images into a 15-sec MP4 with Ken Burns zoom and cafe name on last slide."""
+    """Stitch 4 images into a 15-sec MP4 slideshow with cafe name on last slide."""
     if not _check_ffmpeg():
         raise RuntimeError(
             "ffmpeg is not installed. Install it with: brew install ffmpeg"
@@ -303,53 +268,40 @@ def create_video(image_paths: list[Path], cafe_name: str, output_path: Path) -> 
     tmp_dir.mkdir(exist_ok=True)
 
     try:
-        # Step 1 — render each image as a Ken Burns clip
-        # Alternate zoom direction for visual variety
-        directions = ["in", "out", "in", "out"]
-        clip_paths = []
-        for i, (img, direction) in enumerate(zip(image_paths, directions)):
-            clip = tmp_dir / f"clip_{i}.mp4"
-            print(f"  Rendering slide {i + 1}/4...")
-            _make_clip(img, clip, direction)
-            clip_paths.append(clip)
+        # Build one ffmpeg command that takes all 4 images and stitches them
+        # Each image shown for SLIDE_DURATION seconds — simple, fast, no CPU-heavy zoom
+        inputs = []
+        for img in image_paths:
+            inputs += ["-loop", "1", "-t", str(SLIDE_DURATION), "-i", str(img)]
 
-        # Step 2 — concatenate all 4 clips
-        concat_path = tmp_dir / "concat.mp4"
-        concat_list = tmp_dir / "list.txt"
-        concat_list.write_text(
-            "\n".join(f"file '{p}'" for p in clip_paths)
-        )
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-f", "concat", "-safe", "0",
-                "-i", str(concat_list),
-                "-c", "copy",
-                str(concat_path),
-            ],
-            check=True, capture_output=True,
-        )
-
-        # Step 3 — add cafe name text overlay on the last slide (final 3.75 s)
+        # Scale all inputs to 1080x1080, concatenate, add text on last slide
         text_start = SLIDE_DURATION * 3   # 11.25 s
         safe_name  = cafe_name.replace("'", "\\'")
-        drawtext = (
-            f"drawtext=text='{safe_name}':"
+
+        filter_parts = []
+        for i in range(4):
+            filter_parts.append(f"[{i}:v]scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080,setsar=1[v{i}]")
+
+        filter_parts.append("[v0][v1][v2][v3]concat=n=4:v=1:a=0[base]")
+        filter_parts.append(
+            f"[base]drawtext=text='{safe_name}':"
             f"fontsize=52:fontcolor=white:"
             f"x=(w-text_w)/2:y=h-120:"
             f"enable='gte(t,{text_start})':"
-            f"box=1:boxcolor=black@0.55:boxborderw=12"
+            f"box=1:boxcolor=black@0.55:boxborderw=12[out]"
         )
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i", str(concat_path),
-                "-vf", drawtext,
-                "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                str(output_path),
-            ],
-            check=True, capture_output=True,
-        )
+
+        filter_complex = ";".join(filter_parts)
+
+        cmd = ["ffmpeg", "-y"] + inputs + [
+            "-filter_complex", filter_complex,
+            "-map", "[out]",
+            "-r", str(FPS),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-preset", "ultrafast",  # fastest encoding, fine for daily social posts
+            str(output_path),
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
 
         print(f"  Video saved: {output_path.name}")
         return output_path
