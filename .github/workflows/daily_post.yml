@@ -40,11 +40,11 @@ jobs:
           CAFE_NAME: ${{ secrets.CAFE_NAME }}
         run: python post_generator.py
 
-      # Commit tracker.json back so tomorrow knows which item comes next
-      - name: Save tracker to repo
+      # Commit tracker.json and logs back so tomorrow knows which item comes next
+      - name: Save tracker and logs to repo
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add tracker.json
-          git diff --staged --quiet || git commit -m "chore: advance menu tracker [skip ci]"
+          git add tracker.json logs/
+          git diff --staged --quiet || git commit -m "chore: advance menu tracker and save run log [skip ci]"
           git push

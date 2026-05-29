@@ -7,6 +7,7 @@ emails everything to the cafe owner, and saves local backups.
 """
 
 import base64
+import logging
 import os
 import json
 import re
@@ -43,6 +44,48 @@ BASE_DIR      = Path(__file__).parent
 MENU_PDF      = BASE_DIR / "menu.pdf"
 TRACKER_FILE  = BASE_DIR / "tracker.json"
 POSTS_DIR     = BASE_DIR / "posts"
+LOGS_DIR      = BASE_DIR / "logs"
+GITHUB_STEP_SUMMARY = os.getenv("GITHUB_STEP_SUMMARY")  # set automatically by GitHub Actions
+
+MAX_EMAIL_ATTACHMENT_MB = 24  # Gmail rejects over 25MB
+
+
+def setup_logging() -> logging.Logger:
+    """Set up logging to both terminal and a daily log file."""
+    LOGS_DIR.mkdir(exist_ok=True)
+    today_str = date.today().strftime("%Y-%m-%d")
+    log_file  = LOGS_DIR / f"{today_str}.log"
+
+    logger = logging.getLogger("cafe_bot")
+    logger.setLevel(logging.DEBUG)
+
+    fmt = logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
+
+    # File handler — full detail
+    fh = logging.FileHandler(log_file, encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+
+    # Console handler — same detail
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(fmt)
+
+    logger.addHandler(fh)
+    logger.addHandler(ch)
+    return logger
+
+
+def write_github_summary(item_name: str, caption: str, video_ok: bool, email_ok: bool) -> None:
+    """Write a summary card to the GitHub Actions job summary page."""
+    if not GITHUB_STEP_SUMMARY:
+        return
+    with open(GITHUB_STEP_SUMMARY, "a") as f:
+        f.write(f"## ☕ Today's Post — {item_name}\n\n")
+        f.write(f"```\n{caption}\n```\n\n")
+        f.write(f"| Step | Status |\n|---|---|\n")
+        f.write(f"| Video generated | {'✅' if video_ok else '⚠️ skipped'} |\n")
+        f.write(f"| Email sent | {'✅' if email_ok else '❌ failed'} |\n")
 
 # ── Menu parsing ─────────────────────────────────────────────────────────────
 
@@ -283,7 +326,8 @@ def create_video(image_paths: list[Path], cafe_name: str, output_path: Path) -> 
 
         # Scale all inputs to 1080x1080, concatenate, add text on last slide
         text_start = SLIDE_DURATION * 3   # 11.25 s
-        safe_name  = cafe_name.replace("'", "\\'")
+        # Sanitize cafe name for ffmpeg drawtext — strip chars that break the filter
+        safe_name = re.sub(r"[:\\'\[\]{}]", "", cafe_name).strip()
 
         filter_parts = []
         for i in range(4):
@@ -308,7 +352,9 @@ def create_video(image_paths: list[Path], cafe_name: str, output_path: Path) -> 
             "-preset", "ultrafast",  # fastest encoding, fine for daily social posts
             str(output_path),
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg failed:\n{result.stderr.decode()}")
 
         print(f"  Video saved: {output_path.name}")
         return output_path
@@ -345,17 +391,17 @@ def send_email(item_name: str, caption: str, video_path: Optional[Path] = None) 
     msg.attach(MIMEText(body, "plain"))
 
     if video_path and video_path.exists():
-        with open(video_path, "rb") as f:
-            part = MIMEBase("video", "mp4")
-            part.set_payload(f.read())
-        encoders.encode_base64(part)
-        part.add_header(
-            "Content-Disposition",
-            "attachment",
-            filename=video_path.name,
-        )
-        msg.attach(part)
-        print(f"Video attached: {video_path.name}")
+        size_mb = video_path.stat().st_size / (1024 * 1024)
+        if size_mb > MAX_EMAIL_ATTACHMENT_MB:
+            print(f"Video too large to attach ({size_mb:.1f}MB > {MAX_EMAIL_ATTACHMENT_MB}MB) — sending caption only.")
+        else:
+            with open(video_path, "rb") as f:
+                part = MIMEBase("video", "mp4")
+                part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", "attachment", filename=video_path.name)
+            msg.attach(part)
+            print(f"Video attached: {video_path.name} ({size_mb:.1f}MB)")
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
@@ -369,13 +415,13 @@ def send_email(item_name: str, caption: str, video_path: Optional[Path] = None) 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    print(f"\n{CAFE_NAME} — Daily Instagram Post Generator")
-    print("=" * 52)
+    log = setup_logging()
+    log.info(f"{CAFE_NAME} — Daily Instagram Post Generator starting")
 
     # 0. Skip if already run today (prevents duplicate posts on manual re-runs)
     today_str = date.today().strftime("%Y-%m-%d")
     if (POSTS_DIR / f"{today_str}.txt").exists():
-        print(f"Today's post already generated ({today_str}.txt exists). Skipping.")
+        log.info(f"Today's post already generated ({today_str}.txt exists). Skipping.")
         return
 
     # 1. Parse menu
@@ -383,51 +429,57 @@ def main() -> None:
 
     # 2. Pick today's item
     item_name, new_index = pick_todays_item(menu)
-    print(f"Today's item: {item_name}  (#{new_index + 1} of {len(menu)})")
+    log.info(f"Today's item: {item_name}  (#{new_index + 1} of {len(menu)})")
 
     # 3. Generate caption (with fallback on failure)
     try:
         caption = generate_caption(item_name)
     except RuntimeError as err:
-        print(f"Caption generation failed: {err}")
+        log.error(f"Caption generation failed: {err}")
         send_email(item_name, f"Could not generate today's caption for: {item_name}\nPlease write the post manually.")
+        write_github_summary(item_name, "Caption generation failed.", False, False)
         return
 
-    # 4. Print the post
-    print("\n" + "-" * 52)
-    print("TODAY'S INSTAGRAM POST")
-    print("-" * 52)
-    print(caption)
-    print("-" * 52 + "\n")
+    log.info("Caption generated:\n" + "-" * 40 + f"\n{caption}\n" + "-" * 40)
 
-    # 5. Save caption locally
+    # 4. Save caption locally
     save_post(item_name, caption)
 
-    # 6. Generate video (DALL-E images → MP4)
+    # 5. Generate video (DALL-E images → MP4)
     video_path = None
+    video_ok   = False
     if OPENAI_API_KEY:
         try:
-            print("Generating slideshow video...")
+            log.info("Generating slideshow video...")
             with tempfile.TemporaryDirectory() as tmp:
                 tmp_path    = Path(tmp)
                 prompts     = generate_image_prompts(item_name)
                 image_paths = generate_images(prompts, tmp_path)
-                today_str   = date.today().strftime("%Y-%m-%d")
                 POSTS_DIR.mkdir(exist_ok=True)
                 video_path = create_video(image_paths, CAFE_NAME, POSTS_DIR / f"{today_str}.mp4")
+                video_ok   = True
+                log.info(f"Video saved: {video_path.name}")
         except Exception as err:
-            print(f"Video generation failed: {err}")
-            print("(Sending email with caption only — video skipped.)")
+            log.error(f"Video generation failed: {err}")
+            log.info("Sending email with caption only — video skipped.")
     else:
-        print("OPENAI_API_KEY not set — skipping video generation.")
+        log.warning("OPENAI_API_KEY not set — skipping video generation.")
 
-    # 7. Email the owner (with video if available)
-    send_email(item_name, caption, video_path)
+    # 6. Email the owner (with video if available)
+    email_ok = False
+    try:
+        send_email(item_name, caption, video_path)
+        email_ok = True
+    except Exception as err:
+        log.error(f"Email failed: {err}")
+
+    # 7. Write GitHub Actions summary
+    write_github_summary(item_name, caption, video_ok, email_ok)
 
     # 8. Advance the tracker so tomorrow picks the next item
     save_tracker(new_index)
 
-    print("\nDone! Have a great day at the cafe. ☕")
+    log.info("Done! Have a great day at the cafe. ☕")
 
 
 if __name__ == "__main__":

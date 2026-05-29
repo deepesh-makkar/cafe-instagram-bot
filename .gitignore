@@ -2,3 +2,4 @@
 posts/
 __pycache__/
 *.pyc
+_tmp_clips/
