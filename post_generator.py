@@ -2,19 +2,26 @@
 """
 Cafe Daily Instagram Post Generator
 Picks one menu item per day, generates a caption with Claude AI,
-emails it to the cafe owner, and saves it as a local backup.
+creates a 15-second slideshow video with DALL-E images,
+emails everything to the cafe owner, and saves local backups.
 """
 
 import os
 import json
 import re
+import shutil
 import smtplib
+import subprocess
+import tempfile
 from datetime import date
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email import encoders
 from pathlib import Path
 
 import anthropic
+import openai as openai_module
 from dotenv import load_dotenv
 from pypdf import PdfReader
 
@@ -23,6 +30,7 @@ from pypdf import PdfReader
 load_dotenv()
 
 ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY")
+OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY")
 GMAIL_SENDER        = os.getenv("GMAIL_SENDER")
 GMAIL_APP_PASSWORD  = os.getenv("GMAIL_APP_PASSWORD")
 OWNER_EMAIL         = os.getenv("OWNER_EMAIL")
@@ -44,7 +52,6 @@ def parse_menu(pdf_path: Path) -> list[str]:
     print("Reading menu...")
     reader = PdfReader(str(pdf_path))
 
-    # Each menu line looks like:  Item Name ........... ` 99
     price_line = re.compile(r"^(.+?)\s*\.{2,}\s*`\s*\d+\s*$")
 
     items = []
@@ -54,7 +61,6 @@ def parse_menu(pdf_path: Path) -> list[str]:
             match = price_line.match(line)
             if match:
                 name = match.group(1).strip()
-                # Fix OCR glitch on "Masala klOmelette"
                 name = re.sub(r"\bkl\B", "", name).strip()
                 if name:
                     items.append(name)
@@ -170,6 +176,187 @@ def generate_caption(item_name: str) -> str:
             else:
                 raise RuntimeError(f"Claude API failed after retry: {err}") from err
 
+
+def generate_image_prompts(item_name: str) -> list[str]:
+    """Ask Claude to write 4 DALL-E image prompts for the slideshow."""
+    print("  Writing image prompts...")
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    prompt = (
+        f"You are helping create a 4-slide Instagram Reel for '{item_name}' "
+        f"from {CAFE_NAME}, a chai cafe in Jaipur, India.\n\n"
+        "Write exactly 4 DALL-E image prompts for these slides:\n"
+        "1. Fresh ingredients laid out neatly on a wooden surface\n"
+        "2. Key preparation moment (pouring, rolling, stirring, assembling)\n"
+        "3. Close-up texture/detail shot (steam, cheese pull, condensation, colour)\n"
+        "4. Final dish beautifully plated and served in a warm cafe setting\n\n"
+        "Style for all prompts: warm golden-hour lighting, shallow depth of field, "
+        "food photography, cozy Indian cafe aesthetic, high detail, appetising.\n\n"
+        "Return ONLY the 4 prompts, one per line, numbered 1–4. Nothing else."
+    )
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=600,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    raw = response.content[0].text.strip()
+    # Strip the leading "1. ", "2. " etc.
+    prompts = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if line:
+            cleaned = re.sub(r"^\d+\.\s*", "", line)
+            prompts.append(cleaned)
+
+    if len(prompts) != 4:
+        raise RuntimeError(f"Expected 4 image prompts, got {len(prompts)}")
+
+    return prompts
+
+# ── DALL-E image generation ───────────────────────────────────────────────────
+
+def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
+    """Generate 4 images via DALL-E 3 and save them to tmp_dir."""
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is not set — cannot generate images.")
+
+    client = openai_module.OpenAI(api_key=OPENAI_API_KEY)
+    paths = []
+
+    for i, prompt_text in enumerate(prompts, start=1):
+        print(f"  Generating image {i}/4...")
+        response = client.images.generate(
+            model="dall-e-3",
+            prompt=prompt_text,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
+        image_url = response.data[0].url
+
+        # Download the image
+        import urllib.request
+        img_path = tmp_dir / f"slide_{i}.png"
+        urllib.request.urlretrieve(image_url, img_path)
+        paths.append(img_path)
+
+    return paths
+
+# ── Video creation ────────────────────────────────────────────────────────────
+
+SLIDE_DURATION = 3.75   # seconds per slide  (4 × 3.75 = 15 s total)
+FPS            = 25
+FRAMES         = int(SLIDE_DURATION * FPS)  # 94 frames per slide
+OUTPUT_SIZE    = "1080x1080"
+
+
+def _check_ffmpeg() -> bool:
+    return shutil.which("ffmpeg") is not None
+
+
+def _make_clip(image_path: Path, clip_path: Path, zoom_direction: str = "in") -> None:
+    """Convert a still image into a Ken Burns clip (slow zoom in or out)."""
+    if zoom_direction == "in":
+        # Start at 1.0, zoom in to 1.2
+        zoom_expr = "min(zoom+0.0008,1.2)"
+        x_expr    = "iw/2-(iw/zoom/2)"
+        y_expr    = "ih/2-(ih/zoom/2)"
+    else:
+        # Start at 1.2, zoom out to 1.0
+        zoom_expr = "max(zoom-0.0008,1.0)"
+        x_expr    = "iw/2-(iw/zoom/2)"
+        y_expr    = "ih/2-(ih/zoom/2)"
+
+    zoompan = (
+        f"zoompan=z='{zoom_expr}':"
+        f"x='{x_expr}':y='{y_expr}':"
+        f"d={FRAMES}:s={OUTPUT_SIZE},setsar=1"
+    )
+    vf = f"scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080,{zoompan}"
+
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-loop", "1", "-t", str(SLIDE_DURATION),
+            "-i", str(image_path),
+            "-vf", vf,
+            "-r", str(FPS),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            str(clip_path),
+        ],
+        check=True, capture_output=True,
+    )
+
+
+def create_video(image_paths: list[Path], cafe_name: str, output_path: Path) -> Path:
+    """Stitch 4 images into a 15-sec MP4 with Ken Burns zoom and cafe name on last slide."""
+    if not _check_ffmpeg():
+        raise RuntimeError(
+            "ffmpeg is not installed. Install it with: brew install ffmpeg"
+        )
+
+    print("Creating video...")
+    tmp_dir = output_path.parent / "_tmp_clips"
+    tmp_dir.mkdir(exist_ok=True)
+
+    try:
+        # Step 1 — render each image as a Ken Burns clip
+        # Alternate zoom direction for visual variety
+        directions = ["in", "out", "in", "out"]
+        clip_paths = []
+        for i, (img, direction) in enumerate(zip(image_paths, directions)):
+            clip = tmp_dir / f"clip_{i}.mp4"
+            print(f"  Rendering slide {i + 1}/4...")
+            _make_clip(img, clip, direction)
+            clip_paths.append(clip)
+
+        # Step 2 — concatenate all 4 clips
+        concat_path = tmp_dir / "concat.mp4"
+        concat_list = tmp_dir / "list.txt"
+        concat_list.write_text(
+            "\n".join(f"file '{p}'" for p in clip_paths)
+        )
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-f", "concat", "-safe", "0",
+                "-i", str(concat_list),
+                "-c", "copy",
+                str(concat_path),
+            ],
+            check=True, capture_output=True,
+        )
+
+        # Step 3 — add cafe name text overlay on the last slide (final 3.75 s)
+        text_start = SLIDE_DURATION * 3   # 11.25 s
+        safe_name  = cafe_name.replace("'", "\\'")
+        drawtext = (
+            f"drawtext=text='{safe_name}':"
+            f"fontsize=52:fontcolor=white:"
+            f"x=(w-text_w)/2:y=h-120:"
+            f"enable='gte(t,{text_start})':"
+            f"box=1:boxcolor=black@0.55:boxborderw=12"
+        )
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(concat_path),
+                "-vf", drawtext,
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                str(output_path),
+            ],
+            check=True, capture_output=True,
+        )
+
+        print(f"  Video saved: {output_path.name}")
+        return output_path
+
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
 # ── Save & email ───────────────────────────────────────────────────────────────
 
 def save_post(item_name: str, caption: str) -> Path:
@@ -178,25 +365,38 @@ def save_post(item_name: str, caption: str) -> Path:
     today_str = date.today().strftime("%Y-%m-%d")
     filepath = POSTS_DIR / f"{today_str}.txt"
     filepath.write_text(f"Item: {item_name}\nDate: {today_str}\n\n{caption}\n")
-    print(f"Saved to: {filepath.relative_to(BASE_DIR)}")
+    print(f"Caption saved: {filepath.relative_to(BASE_DIR)}")
     return filepath
 
 
-def send_email(item_name: str, caption: str) -> None:
-    """Send the caption to the cafe owner via Gmail SMTP."""
+def send_email(item_name: str, caption: str, video_path: Path | None = None) -> None:
+    """Send the caption (and optional video) to the cafe owner via Gmail SMTP."""
     if not all([GMAIL_SENDER, GMAIL_APP_PASSWORD, OWNER_EMAIL]):
         print("Email credentials not set — skipping email. Add them to your .env file.")
         return
 
     today_str = date.today().strftime("%B %d, %Y")
-    subject = f"☕ Today's Instagram Post – {item_name} | {today_str}"
-    body = f"{caption}\n\n---\nReview and post to Instagram when ready.\n"
+    subject   = f"☕ Today's Instagram Post – {item_name} | {today_str}"
+    body      = f"{caption}\n\n---\nReview and post to Instagram when ready.\n"
 
     msg = MIMEMultipart()
-    msg["From"] = GMAIL_SENDER
-    msg["To"] = OWNER_EMAIL
+    msg["From"]    = GMAIL_SENDER
+    msg["To"]      = OWNER_EMAIL
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain"))
+
+    if video_path and video_path.exists():
+        with open(video_path, "rb") as f:
+            part = MIMEBase("video", "mp4")
+            part.set_payload(f.read())
+        encoders.encode_base64(part)
+        part.add_header(
+            "Content-Disposition",
+            "attachment",
+            filename=video_path.name,
+        )
+        msg.attach(part)
+        print(f"Video attached: {video_path.name}")
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
@@ -225,11 +425,7 @@ def main() -> None:
         caption = generate_caption(item_name)
     except RuntimeError as err:
         print(f"Caption generation failed: {err}")
-        fallback_body = (
-            f"Could not generate today's caption for: {item_name}\n"
-            "Please write the post manually."
-        )
-        send_email(item_name, fallback_body)
+        send_email(item_name, f"Could not generate today's caption for: {item_name}\nPlease write the post manually.")
         return
 
     # 4. Print the post
@@ -237,15 +433,33 @@ def main() -> None:
     print("TODAY'S INSTAGRAM POST")
     print("-" * 52)
     print(caption)
-    print("-" * 52)
+    print("-" * 52 + "\n")
 
-    # 5. Save locally
+    # 5. Save caption locally
     save_post(item_name, caption)
 
-    # 6. Email the owner
-    send_email(item_name, caption)
+    # 6. Generate video (DALL-E images → MP4)
+    video_path = None
+    if OPENAI_API_KEY:
+        try:
+            print("Generating slideshow video...")
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path    = Path(tmp)
+                prompts     = generate_image_prompts(item_name)
+                image_paths = generate_images(prompts, tmp_path)
+                today_str   = date.today().strftime("%Y-%m-%d")
+                POSTS_DIR.mkdir(exist_ok=True)
+                video_path = create_video(image_paths, CAFE_NAME, POSTS_DIR / f"{today_str}.mp4")
+        except Exception as err:
+            print(f"Video generation failed: {err}")
+            print("(Sending email with caption only — video skipped.)")
+    else:
+        print("OPENAI_API_KEY not set — skipping video generation.")
 
-    # 7. Advance the tracker so tomorrow picks the next item
+    # 7. Email the owner (with video if available)
+    send_email(item_name, caption, video_path)
+
+    # 8. Advance the tracker so tomorrow picks the next item
     save_tracker(new_index)
 
     print("\nDone! Have a great day at the cafe. ☕")
