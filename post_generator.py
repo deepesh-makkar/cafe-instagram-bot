@@ -273,12 +273,12 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
 
     def _generate_one(args):
         i, prompt_text = args
-        client = openai_module.OpenAI(api_key=OPENAI_API_KEY)
+        client = openai_module.OpenAI(api_key=OPENAI_API_KEY, timeout=90.0)
         response = client.images.generate(
             model="gpt-image-1",
             prompt=prompt_text,
             size="1024x1024",
-            quality="medium",
+            quality="low",  # faster generation, still looks good for social media
             n=1,
         )
         img_path = tmp_dir / f"slide_{i}.png"
