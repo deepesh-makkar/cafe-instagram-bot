@@ -19,6 +19,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email import encoders
 from pathlib import Path
+from typing import Optional
 
 import anthropic
 import openai as openai_module
@@ -229,19 +230,17 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
     for i, prompt_text in enumerate(prompts, start=1):
         print(f"  Generating image {i}/4...")
         response = client.images.generate(
-            model="dall-e-3",
+            model="gpt-image-1",
             prompt=prompt_text,
             size="1024x1024",
-            quality="standard",
+            quality="medium",
             n=1,
         )
-        image_url = response.data[0].url
 
-        # Download the image (30s timeout so we don't hang forever)
-        import urllib.request
+        # gpt-image-1 returns base64 data, not a URL
+        import base64
         img_path = tmp_dir / f"slide_{i}.png"
-        with urllib.request.urlopen(image_url, timeout=30) as resp, open(img_path, "wb") as f:
-            f.write(resp.read())
+        img_path.write_bytes(base64.b64decode(response.data[0].b64_json))
         paths.append(img_path)
 
     return paths
@@ -370,7 +369,7 @@ def save_post(item_name: str, caption: str) -> Path:
     return filepath
 
 
-def send_email(item_name: str, caption: str, video_path: Path | None = None) -> None:
+def send_email(item_name: str, caption: str, video_path: Optional[Path] = None) -> None:
     """Send the caption (and optional video) to the cafe owner via Gmail SMTP."""
     if not all([GMAIL_SENDER, GMAIL_APP_PASSWORD, OWNER_EMAIL]):
         print("Email credentials not set — skipping email. Add them to your .env file.")
