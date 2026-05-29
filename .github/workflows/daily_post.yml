@@ -6,9 +6,13 @@ on:
     - cron: "30 3 * * *"
   workflow_dispatch: # allows manual trigger from GitHub UI
 
+permissions:
+  contents: write  # needed to commit tracker.json back to the repo
+
 jobs:
   generate-post:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # fail fast if something hangs (default is 6 hours)
 
     steps:
       - name: Check out repo

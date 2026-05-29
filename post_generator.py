@@ -237,10 +237,11 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
         )
         image_url = response.data[0].url
 
-        # Download the image
+        # Download the image (30s timeout so we don't hang forever)
         import urllib.request
         img_path = tmp_dir / f"slide_{i}.png"
-        urllib.request.urlretrieve(image_url, img_path)
+        with urllib.request.urlopen(image_url, timeout=30) as resp, open(img_path, "wb") as f:
+            f.write(resp.read())
         paths.append(img_path)
 
     return paths
