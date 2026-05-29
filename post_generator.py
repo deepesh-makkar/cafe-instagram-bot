@@ -6,6 +6,7 @@ creates a 15-second slideshow video with DALL-E images,
 emails everything to the cafe owner, and saves local backups.
 """
 
+import base64
 import os
 import json
 import re
@@ -13,6 +14,7 @@ import shutil
 import smtplib
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
@@ -220,15 +222,15 @@ def generate_image_prompts(item_name: str) -> list[str]:
 # ── DALL-E image generation ───────────────────────────────────────────────────
 
 def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
-    """Generate 4 images via DALL-E 3 and save them to tmp_dir."""
+    """Generate 4 images in parallel via gpt-image-1 and save them to tmp_dir."""
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is not set — cannot generate images.")
 
-    client = openai_module.OpenAI(api_key=OPENAI_API_KEY)
-    paths = []
+    print(f"  Generating {len(prompts)} images in parallel...")
 
-    for i, prompt_text in enumerate(prompts, start=1):
-        print(f"  Generating image {i}/4...")
+    def _generate_one(args):
+        i, prompt_text = args
+        client = openai_module.OpenAI(api_key=OPENAI_API_KEY)
         response = client.images.generate(
             model="gpt-image-1",
             prompt=prompt_text,
@@ -236,12 +238,17 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
             quality="medium",
             n=1,
         )
-
-        # gpt-image-1 returns base64 data, not a URL
-        import base64
         img_path = tmp_dir / f"slide_{i}.png"
         img_path.write_bytes(base64.b64decode(response.data[0].b64_json))
-        paths.append(img_path)
+        print(f"  Image {i} done.")
+        return i, img_path
+
+    paths = [None] * len(prompts)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(_generate_one, (i + 1, p)): i for i, p in enumerate(prompts)}
+        for future in as_completed(futures):
+            i, path = future.result()
+            paths[i - 1] = path
 
     return paths
 
@@ -364,6 +371,12 @@ def send_email(item_name: str, caption: str, video_path: Optional[Path] = None) 
 def main() -> None:
     print(f"\n{CAFE_NAME} — Daily Instagram Post Generator")
     print("=" * 52)
+
+    # 0. Skip if already run today (prevents duplicate posts on manual re-runs)
+    today_str = date.today().strftime("%Y-%m-%d")
+    if (POSTS_DIR / f"{today_str}.txt").exists():
+        print(f"Today's post already generated ({today_str}.txt exists). Skipping.")
+        return
 
     # 1. Parse menu
     menu = parse_menu(MENU_PDF)
