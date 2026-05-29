@@ -298,8 +298,8 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
 # ── Video creation ────────────────────────────────────────────────────────────
 
 SLIDE_DURATION = 3.75   # seconds per slide  (4 × 3.75 = 15 s total)
-FPS            = 25
-OUTPUT_SIZE    = "1080x1080"
+FPS            = 15     # 15fps is smooth enough for slideshow, 40% less encoding work
+OUTPUT_SIZE    = "720x720"  # 720p — Instagram accepts this, much faster to encode
 
 
 def _check_ffmpeg() -> bool:
@@ -331,7 +331,7 @@ def create_video(image_paths: list[Path], cafe_name: str, output_path: Path) -> 
 
         filter_parts = []
         for i in range(4):
-            filter_parts.append(f"[{i}:v]scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080,setsar=1[v{i}]")
+            filter_parts.append(f"[{i}:v]scale=720:720:force_original_aspect_ratio=increase,crop=720:720,setsar=1[v{i}]")
 
         filter_parts.append("[v0][v1][v2][v3]concat=n=4:v=1:a=0[base]")
         filter_parts.append(
