@@ -199,11 +199,11 @@ def generate_caption(item_name: str) -> str:
         f"You are writing an Instagram caption for {CAFE_NAME}, "
         f"a beloved chai cafe in Malviya Nagar, Jaipur.\n\n"
         f"Today's featured item: {item_name}\n\n"
-        "Write a warm, inviting Instagram caption that:\n"
-        "- Sounds like a friendly barista talking to regulars\n"
-        "- Highlights what makes this item special (taste, ingredients, the mood it creates)\n"
-        "- Is 3–6 sentences long\n"
-        "- Ends with 3–5 relevant hashtags\n"
+        "Write a short, punchy Instagram caption that:\n"
+        "- Is exactly 2–3 sentences — crisp, no fluff\n"
+        "- Sounds warm and conversational, like a friendly barista\n"
+        "- Highlights what makes this item special in one vivid line\n"
+        "- Ends with 3–4 relevant hashtags on a new line\n"
         "- Does NOT mention the price\n\n"
         "Write only the caption — nothing else."
     )
@@ -230,21 +230,27 @@ def generate_image_prompts(item_name: str) -> list[str]:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     prompt = (
-        f"You are helping create a 4-slide Instagram Reel for '{item_name}' "
+        f"You are helping create a 6-slide Instagram Reel for '{item_name}' "
         f"from {CAFE_NAME}, a chai cafe in Jaipur, India.\n\n"
-        "Write exactly 4 DALL-E image prompts for these slides:\n"
-        "1. Fresh ingredients laid out neatly on a wooden surface\n"
+        "Write exactly 6 DALL-E image prompts for these slides:\n"
+        "1. Fresh ingredients laid out neatly\n"
         "2. Key preparation moment (pouring, rolling, stirring, assembling)\n"
         "3. Close-up texture/detail shot (steam, cheese pull, condensation, colour)\n"
-        "4. Final dish beautifully plated and served in a warm cafe setting\n\n"
-        "Style for all prompts: warm golden-hour lighting, shallow depth of field, "
-        "food photography, cozy Indian cafe aesthetic, high detail, appetising.\n\n"
-        "Return ONLY the 4 prompts, one per line, numbered 1–4. Nothing else."
+        "4. Another close-up angle — different detail or lighting\n"
+        "5. The item from above (flat-lay / bird's-eye view)\n"
+        "6. Final dish beautifully plated and ready to serve\n\n"
+        "IMPORTANT background rule for ALL prompts: use a plain solid-colour backdrop "
+        "(cream, terracotta, sage, dusty rose, navy) OR a simple textured surface "
+        "(rough plaster wall, bare brick, wooden planks, linen cloth). "
+        "Do NOT depict a cafe interior or any recognisable room — just the food against a clean background.\n\n"
+        "Style for all prompts: warm soft lighting, shallow depth of field, "
+        "food photography, high detail, appetising.\n\n"
+        "Return ONLY the 6 prompts, one per line, numbered 1–6. Nothing else."
     )
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=600,
+        max_tokens=800,
         messages=[{"role": "user", "content": prompt}],
     )
 
@@ -257,8 +263,8 @@ def generate_image_prompts(item_name: str) -> list[str]:
             cleaned = re.sub(r"^\d+\.\s*", "", line)
             prompts.append(cleaned)
 
-    if len(prompts) != 4:
-        raise RuntimeError(f"Expected 4 image prompts, got {len(prompts)}")
+    if len(prompts) != 6:
+        raise RuntimeError(f"Expected 6 image prompts, got {len(prompts)}")
 
     return prompts
 
@@ -287,7 +293,7 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
         return i, img_path
 
     paths = [None] * len(prompts)
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=6) as executor:
         futures = {executor.submit(_generate_one, (i + 1, p)): i for i, p in enumerate(prompts)}
         for future in as_completed(futures):
             i, path = future.result()
@@ -297,7 +303,7 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
 
 # ── Video creation ────────────────────────────────────────────────────────────
 
-SLIDE_DURATION = 3.75   # seconds per slide  (4 × 3.75 = 15 s total)
+SLIDE_DURATION = 2.0    # seconds per slide  (6 × 2.0 = 12 s total)
 FPS            = 15     # 15fps is smooth enough for slideshow, 40% less encoding work
 OUTPUT_SIZE    = "720x720"  # 720p — Instagram accepts this, much faster to encode
 
@@ -320,15 +326,17 @@ def create_video(image_paths: list[Path], cafe_name: str, output_path: Path) -> 
     try:
         # Build one ffmpeg command that takes all 4 images and stitches them
         # Each image shown for SLIDE_DURATION seconds — simple, fast, no CPU-heavy zoom
+        n = len(image_paths)
         inputs = []
         for img in image_paths:
             inputs += ["-loop", "1", "-t", str(SLIDE_DURATION), "-i", str(img)]
 
         filter_parts = []
-        for i in range(4):
+        for i in range(n):
             filter_parts.append(f"[{i}:v]scale=720:720:force_original_aspect_ratio=increase,crop=720:720,setsar=1[v{i}]")
 
-        filter_parts.append("[v0][v1][v2][v3]concat=n=4:v=1:a=0[out]")
+        concat_inputs = "".join(f"[v{i}]" for i in range(n))
+        filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=0[out]")
 
         filter_complex = ";".join(filter_parts)
 
