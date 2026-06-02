@@ -42,15 +42,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Download background music
-        # Downloads a royalty-free lofi track into assets/music.mp3
-        # Set MUSIC_URL as a GitHub secret to use your own track (any direct MP3 link)
-        # If the secret is not set, the video will be generated without music
-        if: ${{ secrets.MUSIC_URL != '' }}
-        run: |
-          mkdir -p assets
-          wget -q -O assets/music.mp3 "${{ secrets.MUSIC_URL }}" && echo "Music downloaded." || echo "Music download failed — continuing without music."
-
       - name: Run post generator
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -59,6 +50,7 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           CAFE_NAME: ${{ secrets.CAFE_NAME }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: python post_generator.py
 
       # Commit tracker.json and logs back so tomorrow knows which item comes next

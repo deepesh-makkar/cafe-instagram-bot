@@ -10,11 +10,13 @@ import base64
 import logging
 import os
 import json
+import random
 import re
 import shutil
 import smtplib
 import subprocess
 import tempfile
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from email.mime.base import MIMEBase
@@ -39,6 +41,7 @@ GMAIL_SENDER        = os.getenv("GMAIL_SENDER")
 GMAIL_APP_PASSWORD  = os.getenv("GMAIL_APP_PASSWORD")
 OWNER_EMAIL         = os.getenv("OWNER_EMAIL")
 CAFE_NAME           = os.getenv("CAFE_NAME", "Our Cafe")
+PIXABAY_API_KEY     = os.getenv("PIXABAY_API_KEY")  # free at pixabay.com/api/docs/
 
 BASE_DIR      = Path(__file__).parent
 MENU_PDF      = BASE_DIR / "menu.pdf"
@@ -303,20 +306,91 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
 
     return paths
 
+# ── Music fetching ───────────────────────────────────────────────────────────
+
+# A varied pool of moods — one is picked at random each day so every reel feels fresh.
+# Mix of vibes that work well for food/cafe content.
+MUSIC_MOODS = [
+    "lofi chill",
+    "lofi cafe",
+    "upbeat acoustic",
+    "indian lofi",
+    "happy background",
+    "acoustic guitar cafe",
+    "chill beats",
+    "warm ambient",
+    "bossa nova cafe",
+    "positive uplifting",
+    "indie pop background",
+    "soft piano",
+]
+
+
+def fetch_random_music(tmp_dir: Path) -> Optional[Path]:
+    """
+    Pick a random mood, search Pixabay for a matching royalty-free track,
+    download it to tmp_dir, and return the path. Returns None on any failure
+    so the video still gets made — just without music.
+    """
+    if not PIXABAY_API_KEY:
+        return None
+
+    mood = random.choice(MUSIC_MOODS)
+    print(f"  Fetching music: '{mood}'...")
+
+    try:
+        import urllib.parse
+        query = urllib.parse.quote(mood)
+        url = (
+            f"https://pixabay.com/api/music/"
+            f"?key={PIXABAY_API_KEY}&q={query}&per_page=20"
+        )
+        with urllib.request.urlopen(url, timeout=15) as resp:
+            data = json.loads(resp.read())
+
+        hits = data.get("hits", [])
+        if not hits:
+            # Fallback to plain "lofi" if the specific mood returns nothing
+            fallback_url = (
+                f"https://pixabay.com/api/music/"
+                f"?key={PIXABAY_API_KEY}&q=lofi&per_page=20"
+            )
+            with urllib.request.urlopen(fallback_url, timeout=15) as resp:
+                hits = json.loads(resp.read()).get("hits", [])
+
+        if not hits:
+            print("  No music found on Pixabay — video will be silent.")
+            return None
+
+        # Pick randomly from the top 10 results so we don't always get the same track
+        track = random.choice(hits[:10])
+        audio_url = track.get("audio") or track.get("url")
+        if not audio_url:
+            return None
+
+        music_path = tmp_dir / "music.mp3"
+        urllib.request.urlretrieve(audio_url, music_path)
+        print(f"  Music ready: '{mood}' vibe ({track.get('duration', '?')}s track)")
+        return music_path
+
+    except Exception as err:
+        print(f"  Music fetch failed ({err}) — continuing without music.")
+        return None
+
+
 # ── Video creation ────────────────────────────────────────────────────────────
 
 SLIDE_DURATION = 1.5    # seconds per slide  (8 × 1.5 = 12 s total)
 FPS            = 30     # 30fps for smoother feel on fast cuts
 OUTPUT_W       = 720
 OUTPUT_H       = 1280   # 9:16 vertical — fills the full Instagram Reels screen
-MUSIC_FILE     = BASE_DIR / "assets" / "music.mp3"  # optional background track
 
 
 def _check_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
-def create_video(image_paths: list[Path], item_name: str, output_path: Path) -> Path:
+def create_video(image_paths: list[Path], item_name: str, output_path: Path, music_path: Optional[Path] = None) -> Path:
     """
     Stitch images into a 9:16 MP4 slideshow with:
     - Blurred background fill (square food images fill the vertical frame beautifully)
@@ -375,13 +449,13 @@ def create_video(image_paths: list[Path], item_name: str, output_path: Path) -> 
     # Base ffmpeg command
     cmd = ["ffmpeg", "-y"] + inputs
 
-    # Add music input if the file exists
-    has_music = MUSIC_FILE.exists()
+    # Add music input if a track was provided
+    has_music = music_path is not None and music_path.exists()
     if has_music:
         total_duration = n * SLIDE_DURATION
         fade_start = max(0, total_duration - 1.5)
-        cmd += ["-stream_loop", "-1", "-i", str(MUSIC_FILE)]
-        print(f"  Adding background music: {MUSIC_FILE.name}")
+        cmd += ["-stream_loop", "-1", "-i", str(music_path)]
+        print(f"  Mixing in music: {music_path.name}")
 
     cmd += ["-filter_complex", filter_complex, "-map", "[final]"]
 
@@ -500,8 +574,9 @@ def main() -> None:
                 tmp_path    = Path(tmp)
                 prompts     = generate_image_prompts(item_name)
                 image_paths = generate_images(prompts, tmp_path)
+                music_path  = fetch_random_music(tmp_path)  # fresh random track every run
                 POSTS_DIR.mkdir(exist_ok=True)
-                video_path = create_video(image_paths, item_name, POSTS_DIR / f"{today_str}.mp4")
+                video_path = create_video(image_paths, item_name, POSTS_DIR / f"{today_str}.mp4", music_path)
                 video_ok   = True
                 log.info(f"Video saved: {video_path.name}")
         except Exception as err:
