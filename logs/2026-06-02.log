@@ -36,3 +36,15 @@ Error parsing global options: Filter not found
 
 05:22:56  INFO      Sending email with caption only — video skipped.
 05:22:57  INFO      Done! Have a great day at the cafe. ☕
+05:31:43  INFO      Chapas - Chai Ki Pyaas — Daily Instagram Post Generator starting
+05:31:44  INFO      Today's item: Darjeeling Chai  (#6 of 91)
+05:31:47  INFO      Caption generated:
+----------------------------------------
+Some teas whisper, but Darjeeling Chai sings — floral, light, and just the right kind of sophisticated. Come in, slow down, and let your cup do the talking. ☕
+
+#ChapasChaiKiPyaas #DarjeelingChai #MalviyaNagarJaipur #ChaiLovers
+----------------------------------------
+05:31:47  INFO      Generating slideshow video...
+05:32:26  ERROR     Video generation failed: Error code: 429 - {'error': {'message': 'Rate limit reached for gpt-image-2 (for limit gpt-image) in organization org-aZSVCRCl0zeLmqMD6wYgFmq3 on input-images per min: Limit 5, Used 5, Requested 1. Please try again in 12s. Visit https://platform.openai.com/account/rate-limits to learn more.', 'type': 'input-images', 'param': None, 'code': 'rate_limit_exceeded'}}
+05:32:26  INFO      Sending email with caption only — video skipped.
+05:32:27  INFO      Done! Have a great day at the cafe. ☕
