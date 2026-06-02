@@ -48,3 +48,30 @@ Some teas whisper, but Darjeeling Chai sings — floral, light, and just the rig
 05:32:26  ERROR     Video generation failed: Error code: 429 - {'error': {'message': 'Rate limit reached for gpt-image-2 (for limit gpt-image) in organization org-aZSVCRCl0zeLmqMD6wYgFmq3 on input-images per min: Limit 5, Used 5, Requested 1. Please try again in 12s. Visit https://platform.openai.com/account/rate-limits to learn more.', 'type': 'input-images', 'param': None, 'code': 'rate_limit_exceeded'}}
 05:32:26  INFO      Sending email with caption only — video skipped.
 05:32:27  INFO      Done! Have a great day at the cafe. ☕
+06:03:25  INFO      Chapas - Chai Ki Pyaas — Daily Instagram Post Generator starting
+06:03:26  INFO      Today's item: Adrak Tulsi Chai  (#7 of 91)
+06:03:29  INFO      Caption generated:
+----------------------------------------
+Adrak Tulsi Chai — because some days need more than just chai, they need a warm hug with a little kick. 🍃 Fresh tulsi, bold ginger, and that perfect slow sip that makes everything feel right again. Come find your cup at Chapas. ☕
+
+#ChapasChaiKiPyaas #AdrakTulsiChai #MalviyaNagarJaipur #ChaiLovers
+----------------------------------------
+06:03:29  INFO      Generating slideshow video...
+06:04:45  ERROR     Video generation failed: ffmpeg failed:
+ffmpeg version 7.0.2-static https://johnvansickle.com/ffmpeg/  Copyright (c) 2000-2024 the FFmpeg developers
+  built with gcc 8 (Debian 8.3.0-6)
+  configuration: --enable-gpl --enable-version3 --enable-static --disable-debug --disable-ffplay --disable-indev=sndio --disable-outdev=sndio --cc=gcc --enable-fontconfig --enable-frei0r --enable-gnutls --enable-gmp --enable-libgme --enable-gray --enable-libaom --enable-libfribidi --enable-libass --enable-libvmaf --enable-libfreetype --enable-libmp3lame --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenjpeg --enable-librubberband --enable-libsoxr --enable-libspeex --enable-libsrt --enable-libvorbis --enable-libopus --enable-libtheora --enable-libvidstab --enable-libvo-amrwbenc --enable-libvpx --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxml2 --enable-libdav1d --enable-libxvid --enable-libzvbi --enable-libzimg
+  libavutil      59.  8.100 / 59.  8.100
+  libavcodec     61.  3.100 / 61.  3.100
+  libavformat    61.  1.100 / 61.  1.100
+  libavdevice    61.  1.100 / 61.  1.100
+  libavfilter    10.  1.100 / 10.  1.100
+  libswscale      8.  1.100 /  8.  1.100
+  libswresample   5.  1.100 /  5.  1.100
+  libpostproc    58.  1.100 / 58.  1.100
+[AVFilterGraph @ 0x132468c0] No such filter: 'drawtext'
+Failed to set value '[0:v]split=2[bg0][fg0];[bg0]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,gblur=sigma=30[blur0];[fg0]scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2:black@0[food0];[blur0][food0]overlay=(W-w)/2:(H-h)/2[v0];[1:v]split=2[bg1][fg1];[bg1]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,gblur=sigma=30[blur1];[fg1]scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2:black@0[food1];[blur1][food1]overlay=(W-w)/2:(H-h)/2[v1];[2:v]split=2[bg2][fg2];[bg2]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,gblur=sigma=30[blur2];[fg2]scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2:black@0[food2];[blur2][food2]overlay=(W-w)/2:(H-h)/2[v2];[3:v]split=2[bg3][fg3];[bg3]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,gblur=sigma=30[blur3];[fg3]scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2:black@0[food3];[blur3][food3]overlay=(W-w)/2:(H-h)/2[v3];[4:v]split=2[bg4][fg4];[bg4]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,gblur=sigma=30[blur4];[fg4]scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2:black@0[food4];[blur4][food4]overlay=(W-w)/2:(H-h)/2[v4];[5:v]split=2[bg5][fg5];[bg5]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,gblur=sigma=30[blur5];[fg5]scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2:black@0[food5];[blur5][food5]overlay=(W-w)/2:(H-h)/2[v5];[6:v]split=2[bg6][fg6];[bg6]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,gblur=sigma=30[blur6];[fg6]scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2:black@0[food6];[blur6][food6]overlay=(W-w)/2:(H-h)/2[v6];[7:v]split=2[bg7][fg7];[bg7]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,gblur=sigma=30[blur7];[fg7]scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2:black@0[food7];[blur7][food7]overlay=(W-w)/2:(H-h)/2[v7];[v0][v1][v2][v3][v4][v5][v6][v7]concat=n=8:v=1:a=0[concat];[concat]drawtext=text='Adrak Tulsi Chai':fontsize=52:fontcolor=white:x=(w-text_w)/2:y=h-160:shadowcolor=black@0.8:shadowx=2:shadowy=2:box=1:boxcolor=black@0.45:boxborderw=14[final]' for option 'filter_complex': Filter not found
+Error parsing global options: Filter not found
+
+06:04:45  INFO      Sending email with caption only — video skipped.
+06:04:46  INFO      Done! Have a great day at the cafe. ☕
