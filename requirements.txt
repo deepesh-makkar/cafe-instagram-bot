@@ -2,3 +2,5 @@ anthropic
 pypdf
 python-dotenv
 openai
+requests
+PyNaCl
