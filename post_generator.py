@@ -224,33 +224,35 @@ def generate_caption(item_name: str) -> str:
 
 
 def generate_image_prompts(item_name: str) -> list[str]:
-    """Ask Claude to write 4 DALL-E image prompts for the slideshow."""
+    """Ask Claude to write 8 DALL-E image prompts for the slideshow."""
     print("  Writing image prompts...")
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     prompt = (
-        f"You are helping create a 6-slide Instagram Reel for '{item_name}' "
+        f"You are helping create an 8-slide Instagram Reel for '{item_name}' "
         f"from {CAFE_NAME}, a chai cafe in Jaipur, India.\n\n"
-        "Write exactly 6 DALL-E image prompts for these slides:\n"
-        "1. Fresh ingredients laid out neatly\n"
-        "2. Key preparation moment (pouring, rolling, stirring, assembling)\n"
-        "3. Close-up texture/detail shot (steam, cheese pull, condensation, colour)\n"
-        "4. Another close-up angle — different detail or lighting\n"
-        "5. The item from above (flat-lay / bird's-eye view)\n"
-        "6. Final dish beautifully plated and ready to serve\n\n"
+        "Write exactly 8 DALL-E image prompts in this order (most dramatic first):\n"
+        "1. HERO SHOT — the final item beautifully presented, most mouth-watering angle\n"
+        "2. Extreme close-up of the most appetising detail (steam rising, condensation, texture, colour)\n"
+        "3. Another tight close-up from a different angle or detail\n"
+        "4. Side-profile shot with beautiful bokeh background\n"
+        "5. Flat-lay / bird's-eye view of the item\n"
+        "6. Action/preparation moment (pouring, stirring, assembling, rolling)\n"
+        "7. Key ingredients arranged neatly\n"
+        "8. Final beauty shot — slightly different framing from slide 1\n\n"
         "IMPORTANT background rule for ALL prompts: use a plain solid-colour backdrop "
-        "(cream, terracotta, sage, dusty rose, navy) OR a simple textured surface "
+        "(cream, terracotta, sage, dusty rose, navy, warm white) OR a simple textured surface "
         "(rough plaster wall, bare brick, wooden planks, linen cloth). "
-        "Do NOT depict a cafe interior or any recognisable room — just the food against a clean background.\n\n"
-        "Style for all prompts: warm soft lighting, shallow depth of field, "
-        "food photography, high detail, appetising.\n\n"
-        "Return ONLY the 6 prompts, one per line, numbered 1–6. Nothing else."
+        "Do NOT depict a cafe interior, restaurant, or any recognisable room.\n\n"
+        "Style for all prompts: warm soft studio lighting, shallow depth of field, "
+        "professional food photography, high detail, appetising.\n\n"
+        "Return ONLY the 8 prompts, one per line, numbered 1–8. Nothing else."
     )
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=800,
+        max_tokens=1000,
         messages=[{"role": "user", "content": prompt}],
     )
 
@@ -263,8 +265,8 @@ def generate_image_prompts(item_name: str) -> list[str]:
             cleaned = re.sub(r"^\d+\.\s*", "", line)
             prompts.append(cleaned)
 
-    if len(prompts) != 6:
-        raise RuntimeError(f"Expected 6 image prompts, got {len(prompts)}")
+    if len(prompts) != 8:
+        raise RuntimeError(f"Expected 8 image prompts, got {len(prompts)}")
 
     return prompts
 
@@ -293,7 +295,7 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
         return i, img_path
 
     paths = [None] * len(prompts)
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {executor.submit(_generate_one, (i + 1, p)): i for i, p in enumerate(prompts)}
         for future in as_completed(futures):
             i, path = future.result()
@@ -303,60 +305,107 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
 
 # ── Video creation ────────────────────────────────────────────────────────────
 
-SLIDE_DURATION = 2.0    # seconds per slide  (6 × 2.0 = 12 s total)
-FPS            = 15     # 15fps is smooth enough for slideshow, 40% less encoding work
-OUTPUT_SIZE    = "720x720"  # 720p — Instagram accepts this, much faster to encode
+SLIDE_DURATION = 1.5    # seconds per slide  (8 × 1.5 = 12 s total)
+FPS            = 30     # 30fps for smoother feel on fast cuts
+OUTPUT_W       = 720
+OUTPUT_H       = 1280   # 9:16 vertical — fills the full Instagram Reels screen
+MUSIC_FILE     = BASE_DIR / "assets" / "music.mp3"  # optional background track
 
 
 def _check_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
-def create_video(image_paths: list[Path], cafe_name: str, output_path: Path) -> Path:
-    """Stitch 4 images into a 15-sec MP4 slideshow with cafe name on last slide."""
+def create_video(image_paths: list[Path], item_name: str, output_path: Path) -> Path:
+    """
+    Stitch images into a 9:16 MP4 slideshow with:
+    - Blurred background fill (square food images fill the vertical frame beautifully)
+    - Item name text overlay on every slide
+    - Optional background music from assets/music.mp3
+    """
     if not _check_ffmpeg():
-        raise RuntimeError(
-            "ffmpeg is not installed. Install it with: brew install ffmpeg"
-        )
+        raise RuntimeError("ffmpeg is not installed. Install it with: brew install ffmpeg")
 
     print("Creating video...")
-    tmp_dir = output_path.parent / "_tmp_clips"
-    tmp_dir.mkdir(exist_ok=True)
+    n = len(image_paths)
 
-    try:
-        # Build one ffmpeg command that takes all 4 images and stitches them
-        # Each image shown for SLIDE_DURATION seconds — simple, fast, no CPU-heavy zoom
-        n = len(image_paths)
-        inputs = []
-        for img in image_paths:
-            inputs += ["-loop", "1", "-t", str(SLIDE_DURATION), "-i", str(img)]
+    # Each image looped for SLIDE_DURATION seconds
+    inputs = []
+    for img in image_paths:
+        inputs += ["-loop", "1", "-t", str(SLIDE_DURATION), "-i", str(img)]
 
-        filter_parts = []
-        for i in range(n):
-            filter_parts.append(f"[{i}:v]scale=720:720:force_original_aspect_ratio=increase,crop=720:720,setsar=1[v{i}]")
+    # Escape item name for ffmpeg drawtext (colons and special chars break the filter)
+    safe_name = re.sub(r"[:\\']", "", item_name)
 
-        concat_inputs = "".join(f"[v{i}]" for i in range(n))
-        filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=0[out]")
+    # Build filter_complex:
+    # For each slide: split into blurred background + centred foreground, overlay them.
+    # Then concat all slides, then add text overlay.
+    filter_parts = []
+    for i in range(n):
+        filter_parts.append(
+            # Split each input into two copies: one for bg blur, one for fg
+            f"[{i}:v]split=2[bg{i}][fg{i}];"
+            # Background: scale to fill 720×1280, heavy blur for a soft bokeh effect
+            f"[bg{i}]scale={OUTPUT_W}:{OUTPUT_H}:force_original_aspect_ratio=increase,"
+            f"crop={OUTPUT_W}:{OUTPUT_H},boxblur=40:40[blur{i}];"
+            # Foreground: scale food image to fit within the 720×720 centre zone
+            f"[fg{i}]scale={OUTPUT_W}:{OUTPUT_W}:force_original_aspect_ratio=decrease,"
+            f"pad={OUTPUT_W}:{OUTPUT_W}:(ow-iw)/2:(oh-ih)/2:black@0[food{i}];"
+            # Overlay food centred on the blurred background
+            f"[blur{i}][food{i}]overlay=(W-w)/2:(H-h)/2[v{i}]"
+        )
 
-        filter_complex = ";".join(filter_parts)
+    # Concatenate all slides
+    concat_inputs = "".join(f"[v{i}]" for i in range(n))
+    filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=0[concat]")
 
-        cmd = ["ffmpeg", "-y"] + inputs + [
-            "-filter_complex", filter_complex,
-            "-map", "[out]",
-            "-r", str(FPS),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-preset", "ultrafast",  # fastest encoding, fine for daily social posts
-            str(output_path),
+    # Text overlay — item name centred near the bottom with a semi-transparent pill
+    filter_parts.append(
+        f"[concat]drawtext="
+        f"text='{safe_name}':"
+        f"fontsize=52:fontcolor=white:"
+        f"x=(w-text_w)/2:y=h-160:"
+        f"shadowcolor=black@0.8:shadowx=2:shadowy=2:"
+        f"box=1:boxcolor=black@0.45:boxborderw=14"
+        f"[final]"
+    )
+
+    filter_complex = ";".join(filter_parts)
+
+    # Base ffmpeg command
+    cmd = ["ffmpeg", "-y"] + inputs
+
+    # Add music input if the file exists
+    has_music = MUSIC_FILE.exists()
+    if has_music:
+        total_duration = n * SLIDE_DURATION
+        fade_start = max(0, total_duration - 1.5)
+        cmd += ["-stream_loop", "-1", "-i", str(MUSIC_FILE)]
+        print(f"  Adding background music: {MUSIC_FILE.name}")
+
+    cmd += ["-filter_complex", filter_complex, "-map", "[final]"]
+
+    if has_music:
+        music_input_index = n  # music is the (n+1)-th input, 0-indexed = n
+        cmd += [
+            "-map", f"{music_input_index}:a",
+            "-af", f"afade=t=out:st={fade_start}:d=1.5",
+            "-shortest",
         ]
-        result = subprocess.run(cmd, capture_output=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"ffmpeg failed:\n{result.stderr.decode()}")
 
-        print(f"  Video saved: {output_path.name}")
-        return output_path
+    cmd += [
+        "-r", str(FPS),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-preset", "ultrafast",
+        str(output_path),
+    ]
 
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed:\n{result.stderr.decode()}")
+
+    print(f"  Video saved: {output_path.name}")
+    return output_path
 
 # ── Save & email ───────────────────────────────────────────────────────────────
 
@@ -452,7 +501,7 @@ def main() -> None:
                 prompts     = generate_image_prompts(item_name)
                 image_paths = generate_images(prompts, tmp_path)
                 POSTS_DIR.mkdir(exist_ok=True)
-                video_path = create_video(image_paths, CAFE_NAME, POSTS_DIR / f"{today_str}.mp4")
+                video_path = create_video(image_paths, item_name, POSTS_DIR / f"{today_str}.mp4")
                 video_ok   = True
                 log.info(f"Video saved: {video_path.name}")
         except Exception as err:
