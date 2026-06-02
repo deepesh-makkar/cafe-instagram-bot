@@ -353,9 +353,10 @@ def fetch_random_music(tmp_dir: Path) -> Optional[Path]:
     try:
         import urllib.parse
         query = urllib.parse.quote(mood)
+        # Pixabay music API endpoint
         url = (
-            f"https://pixabay.com/api/music"
-            f"/?key={PIXABAY_API_KEY}&q={query}&per_page=20"
+            f"https://pixabay.com/api/music/"
+            f"?key={PIXABAY_API_KEY}&q={query}&per_page=20"
         )
         with urllib.request.urlopen(url, timeout=15) as resp:
             data = json.loads(resp.read())
@@ -364,8 +365,8 @@ def fetch_random_music(tmp_dir: Path) -> Optional[Path]:
         if not hits:
             # Fallback to plain "lofi" if the specific mood returns nothing
             fallback_url = (
-                f"https://pixabay.com/api/music"
-                f"/?key={PIXABAY_API_KEY}&q=lofi&per_page=20"
+                f"https://pixabay.com/api/music/"
+                f"?key={PIXABAY_API_KEY}&q=lofi&per_page=20"
             )
             with urllib.request.urlopen(fallback_url, timeout=15) as resp:
                 hits = json.loads(resp.read()).get("hits", [])
@@ -428,17 +429,11 @@ def create_video(image_paths: list[Path], item_name: str, output_path: Path, mus
     # Then concat all slides, then add text overlay.
     filter_parts = []
     for i in range(n):
+        # Scale image to fit 720×720, then pad to 720×1280 with black bars top/bottom
+        # Simple, clean, works with any ffmpeg build — no blur filters needed
         filter_parts.append(
-            # Split each input into two copies: one for bg blur, one for fg
-            f"[{i}:v]split=2[bg{i}][fg{i}];"
-            # Background: scale to fill 720×1280, then blur using gblur (universally supported)
-            f"[bg{i}]scale={OUTPUT_W}:{OUTPUT_H}:force_original_aspect_ratio=increase,"
-            f"crop={OUTPUT_W}:{OUTPUT_H},gblur=sigma=30[blur{i}];"
-            # Foreground: scale food image to fit within the 720×720 centre zone
-            f"[fg{i}]scale={OUTPUT_W}:{OUTPUT_W}:force_original_aspect_ratio=decrease,"
-            f"pad={OUTPUT_W}:{OUTPUT_W}:(ow-iw)/2:(oh-ih)/2:black@0[food{i}];"
-            # Overlay food centred on the blurred background
-            f"[blur{i}][food{i}]overlay=(W-w)/2:(H-h)/2[v{i}]"
+            f"[{i}:v]scale={OUTPUT_W}:{OUTPUT_W}:force_original_aspect_ratio=decrease,"
+            f"pad={OUTPUT_W}:{OUTPUT_H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1[v{i}]"
         )
 
     # Concatenate all slides
