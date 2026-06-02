@@ -35,15 +35,13 @@ from pypdf import PdfReader
 
 load_dotenv()
 
-ANTHROPIC_API_KEY        = os.getenv("ANTHROPIC_API_KEY")
-OPENAI_API_KEY           = os.getenv("OPENAI_API_KEY")
-GMAIL_SENDER             = os.getenv("GMAIL_SENDER")
-GMAIL_APP_PASSWORD       = os.getenv("GMAIL_APP_PASSWORD")
-OWNER_EMAIL              = os.getenv("OWNER_EMAIL")
-CAFE_NAME                = os.getenv("CAFE_NAME", "Our Cafe")
-PIXABAY_API_KEY          = os.getenv("PIXABAY_API_KEY")          # free at pixabay.com/api/docs/
-GDRIVE_FOLDER_ID         = os.getenv("GDRIVE_FOLDER_ID")         # Google Drive folder ID
-GDRIVE_SERVICE_ACCOUNT   = os.getenv("GDRIVE_SERVICE_ACCOUNT")   # full service account JSON as a string
+ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY")
+OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY")
+GMAIL_SENDER        = os.getenv("GMAIL_SENDER")
+GMAIL_APP_PASSWORD  = os.getenv("GMAIL_APP_PASSWORD")
+OWNER_EMAIL         = os.getenv("OWNER_EMAIL")
+CAFE_NAME           = os.getenv("CAFE_NAME", "Our Cafe")
+PIXABAY_API_KEY     = os.getenv("PIXABAY_API_KEY")  # free at pixabay.com/api/docs/
 
 BASE_DIR      = Path(__file__).parent
 MENU_PDF      = BASE_DIR / "menu.pdf"
@@ -306,7 +304,8 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
                     raise
         img_path = tmp_dir / f"slide_{i}.png"
         img_path.write_bytes(base64.b64decode(response.data[0].b64_json))
-        print(f"  Image {i} done.")
+        size_kb = img_path.stat().st_size / 1024
+        print(f"  Image {i} done. ({size_kb:.0f} KB)")
         return i, img_path
 
     paths = [None] * len(prompts)
@@ -494,54 +493,6 @@ def create_video(image_paths: list[Path], item_name: str, output_path: Path, mus
     print(f"  Video saved: {output_path.name}")
     return output_path
 
-# ── Google Drive upload ───────────────────────────────────────────────────────
-
-def upload_to_drive(file_path: Path, mime_type: str) -> Optional[str]:
-    """
-    Upload a file to Google Drive and return its shareable link.
-    Requires GDRIVE_SERVICE_ACCOUNT (JSON string) and GDRIVE_FOLDER_ID env vars.
-    Returns None gracefully if credentials are missing or upload fails.
-    """
-    if not GDRIVE_SERVICE_ACCOUNT or not GDRIVE_FOLDER_ID:
-        return None
-
-    try:
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
-        from googleapiclient.http import MediaFileUpload
-
-        # Parse service account JSON from the environment variable
-        sa_info = json.loads(GDRIVE_SERVICE_ACCOUNT)
-        creds = service_account.Credentials.from_service_account_info(
-            sa_info, scopes=["https://www.googleapis.com/auth/drive"]
-        )
-        service = build("drive", "v3", credentials=creds, cache_discovery=False)
-
-        # Upload the file into the shared folder
-        file_metadata = {
-            "name": file_path.name,
-            "parents": [GDRIVE_FOLDER_ID],
-        }
-        media = MediaFileUpload(str(file_path), mimetype=mime_type, resumable=True)
-        uploaded = service.files().create(
-            body=file_metadata, media_body=media, fields="id, webViewLink"
-        ).execute()
-
-        # Make it readable by anyone with the link
-        service.permissions().create(
-            fileId=uploaded["id"],
-            body={"type": "anyone", "role": "reader"},
-        ).execute()
-
-        link = uploaded.get("webViewLink", "")
-        print(f"  Uploaded to Drive: {file_path.name} → {link}")
-        return link
-
-    except Exception as err:
-        print(f"  Drive upload failed: {err}")
-        return None
-
-
 # ── Save & email ───────────────────────────────────────────────────────────────
 
 def save_post(item_name: str, caption: str) -> Path:
@@ -554,29 +505,15 @@ def save_post(item_name: str, caption: str) -> Path:
     return filepath
 
 
-def send_email(item_name: str, caption: str, video_path: Optional[Path] = None, drive_link: Optional[str] = None) -> None:
-    """
-    Send the caption to the cafe owner via Gmail SMTP.
-    If a Drive link is available, include it instead of attaching the video.
-    Falls back to attaching the video directly if Drive upload wasn't done.
-    """
+def send_email(item_name: str, caption: str, video_path: Optional[Path] = None) -> None:
+    """Send the caption + video attachment to the cafe owner via Gmail SMTP."""
     if not all([GMAIL_SENDER, GMAIL_APP_PASSWORD, OWNER_EMAIL]):
         print("Email credentials not set — skipping email. Add them to your .env file.")
         return
 
     today_str = date.today().strftime("%B %d, %Y")
     subject   = f"☕ Today's Instagram Post – {item_name} | {today_str}"
-
-    if drive_link:
-        # Clean lightweight email — just caption + Drive link
-        body = (
-            f"{caption}\n\n"
-            f"---\n"
-            f"📹 Video: {drive_link}\n\n"
-            f"Review and post to Instagram when ready."
-        )
-    else:
-        body = f"{caption}\n\n---\nReview and post to Instagram when ready.\n"
+    body      = f"{caption}\n\n---\nReview and post to Instagram when ready.\n"
 
     msg = MIMEMultipart()
     msg["From"]    = GMAIL_SENDER
@@ -584,11 +521,10 @@ def send_email(item_name: str, caption: str, video_path: Optional[Path] = None, 
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain"))
 
-    # Only attach video directly if Drive upload didn't happen
-    if not drive_link and video_path and video_path.exists():
+    if video_path and video_path.exists():
         size_mb = video_path.stat().st_size / (1024 * 1024)
         if size_mb > MAX_EMAIL_ATTACHMENT_MB:
-            print(f"Video too large to attach ({size_mb:.1f}MB) and no Drive link — sending caption only.")
+            print(f"Video too large to attach ({size_mb:.1f}MB > {MAX_EMAIL_ATTACHMENT_MB}MB) — sending caption only.")
         else:
             with open(video_path, "rb") as f:
                 part = MIMEBase("video", "mp4")
@@ -654,38 +590,28 @@ def main() -> None:
                 POSTS_DIR.mkdir(exist_ok=True)
                 video_path = create_video(image_paths, item_name, POSTS_DIR / f"{today_str}.mp4", music_path)
                 video_ok   = True
-                log.info(f"Video saved: {video_path.name}")
+                video_mb   = video_path.stat().st_size / (1024 * 1024)
+                total_images_kb = sum(p.stat().st_size for p in image_paths) / 1024
+                log.info(f"Video saved: {video_path.name} ({video_mb:.1f} MB)")
+                log.info(f"Images total: {total_images_kb:.0f} KB across {len(image_paths)} slides")
         except Exception as err:
             log.error(f"Video generation failed: {err}")
             log.info("Sending email with caption only — video skipped.")
     else:
         log.warning("OPENAI_API_KEY not set — skipping video generation.")
 
-    # 6. Upload to Google Drive (video + caption txt)
-    drive_link = None
-    if video_ok and video_path:
-        log.info("Uploading video to Google Drive...")
-        drive_link = upload_to_drive(video_path, "video/mp4")
-        if drive_link:
-            log.info(f"Drive link: {drive_link}")
-            # Also upload the caption txt for easy reference
-            caption_path = POSTS_DIR / f"{today_str}.txt"
-            upload_to_drive(caption_path, "text/plain")
-        else:
-            log.info("Drive upload skipped or failed — will attach video to email instead.")
-
-    # 7. Email the owner — Drive link if available, else video attachment
+    # 6. Email the owner with video attached
     email_ok = False
     try:
-        send_email(item_name, caption, video_path, drive_link)
+        send_email(item_name, caption, video_path)
         email_ok = True
     except Exception as err:
         log.error(f"Email failed: {err}")
 
-    # 8. Write GitHub Actions summary
+    # 7. Write GitHub Actions summary
     write_github_summary(item_name, caption, video_ok, email_ok)
 
-    # 9. Advance the tracker so tomorrow picks the next item
+    # 8. Advance the tracker so tomorrow picks the next item
     save_tracker(new_index)
 
     log.info("Done! Have a great day at the cafe. ☕")

@@ -51,8 +51,6 @@ jobs:
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           CAFE_NAME: ${{ secrets.CAFE_NAME }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
-          GDRIVE_SERVICE_ACCOUNT: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
         run: python post_generator.py
 
       # Commit tracker.json and logs back so tomorrow knows which item comes next
