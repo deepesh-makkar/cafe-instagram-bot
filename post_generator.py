@@ -284,21 +284,32 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
 
     def _generate_one(args):
         i, prompt_text = args
-        client = openai_module.OpenAI(api_key=OPENAI_API_KEY, timeout=90.0)
-        response = client.images.generate(
-            model="gpt-image-2",
-            prompt=prompt_text,
-            size="1024x1024",
-            quality="low",
-            n=1,
-        )
+        client = openai_module.OpenAI(api_key=OPENAI_API_KEY, timeout=120.0)
+        # Retry once on rate limit (429) with a 15s wait
+        for attempt in range(2):
+            try:
+                response = client.images.generate(
+                    model="gpt-image-2",
+                    prompt=prompt_text,
+                    size="1024x1024",
+                    quality="low",
+                    n=1,
+                )
+                break
+            except openai_module.RateLimitError:
+                if attempt == 0:
+                    print(f"  Image {i}: rate limited — waiting 15s and retrying...")
+                    import time; time.sleep(15)
+                else:
+                    raise
         img_path = tmp_dir / f"slide_{i}.png"
         img_path.write_bytes(base64.b64decode(response.data[0].b64_json))
         print(f"  Image {i} done.")
         return i, img_path
 
     paths = [None] * len(prompts)
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    # Max 5 parallel workers — gpt-image-2 rate limit is 5 images/min
+    with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(_generate_one, (i + 1, p)): i for i, p in enumerate(prompts)}
         for future in as_completed(futures):
             i, path = future.result()
