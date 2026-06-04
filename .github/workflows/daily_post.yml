@@ -1,9 +1,9 @@
 name: Daily Instagram Post
 
 on:
-  # schedule:
-  #   # 3:30 UTC = 9:00 AM IST (India Standard Time)
-  #   - cron: "30 3 * * *"
+  schedule:
+    # 3:30 UTC = 9:00 AM IST (India Standard Time)
+    - cron: "30 3 * * *"
   workflow_dispatch: # allows manual trigger from GitHub UI
 
 permissions:
