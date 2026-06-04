@@ -28,7 +28,8 @@ jobs:
         # apt-get ffmpeg includes all filters (drawtext, gblur, etc.)
         # The old static binary from johnvansickle.com was missing these
         run: |
-          sudo apt-get install -y ffmpeg
+          sudo apt-get update
+          sudo apt-get install -y --fix-missing ffmpeg
           ffmpeg -version | head -1
 
       - name: Install dependencies
