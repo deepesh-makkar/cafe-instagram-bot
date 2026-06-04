@@ -24,19 +24,11 @@ jobs:
           python-version: "3.11"
           cache: "pip"  # caches pip packages between runs
 
-      - name: Cache static ffmpeg binary
-        uses: actions/cache@v4
-        id: cache-ffmpeg
-        with:
-          path: /usr/local/bin/ffmpeg
-          key: ffmpeg-static-linux64-v1
-
-      - name: Install static ffmpeg binary
-        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+      - name: Install ffmpeg
+        # apt-get ffmpeg includes all filters (drawtext, gblur, etc.)
+        # The old static binary from johnvansickle.com was missing these
         run: |
-          wget -q https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
-          tar -xf ffmpeg-release-amd64-static.tar.xz
-          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg
+          sudo apt-get install -y ffmpeg
           ffmpeg -version | head -1
 
       - name: Install dependencies
