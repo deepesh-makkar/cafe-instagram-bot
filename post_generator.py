@@ -35,6 +35,7 @@ OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY")
 RESEND_API_KEY      = os.getenv("RESEND_API_KEY")   # resend.com — for sending emails
 OWNER_EMAIL         = os.getenv("OWNER_EMAIL")
 CAFE_NAME           = os.getenv("CAFE_NAME", "Our Cafe")
+CAFE_LOCATION       = os.getenv("CAFE_LOCATION", "Malviya Nagar, Jaipur")
 PIXABAY_API_KEY     = os.getenv("PIXABAY_API_KEY")  # free at pixabay.com/api/docs/
 
 # Resend requires a verified from address — default is their shared domain for free accounts
@@ -197,7 +198,7 @@ def generate_caption(item_name: str) -> str:
 
     prompt = (
         f"You are writing an Instagram caption for {CAFE_NAME}, "
-        f"a beloved chai cafe in Malviya Nagar, Jaipur.\n\n"
+        f"a beloved chai cafe in {CAFE_LOCATION}.\n\n"
         f"Today's featured item: {item_name}\n\n"
         "Write a short, punchy Instagram caption that:\n"
         "- Is exactly 2–3 sentences — crisp, no fluff\n"
