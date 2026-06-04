@@ -13,16 +13,11 @@ import json
 import random
 import re
 import shutil
-import smtplib
 import subprocess
 import tempfile
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
-from email.mime.base import MIMEBase
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email import encoders
 from pathlib import Path
 from typing import Optional
 
@@ -37,11 +32,13 @@ load_dotenv()
 
 ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY")
-GMAIL_SENDER        = os.getenv("GMAIL_SENDER")
-GMAIL_APP_PASSWORD  = os.getenv("GMAIL_APP_PASSWORD")
+RESEND_API_KEY      = os.getenv("RESEND_API_KEY")   # resend.com — for sending emails
 OWNER_EMAIL         = os.getenv("OWNER_EMAIL")
 CAFE_NAME           = os.getenv("CAFE_NAME", "Our Cafe")
 PIXABAY_API_KEY     = os.getenv("PIXABAY_API_KEY")  # free at pixabay.com/api/docs/
+
+# Resend requires a verified from address — default is their shared domain for free accounts
+RESEND_FROM         = "Chapas Bot <onboarding@resend.dev>"
 
 BASE_DIR      = Path(__file__).parent
 MENU_PDF      = BASE_DIR / "menu.pdf"
@@ -50,7 +47,7 @@ POSTS_DIR     = BASE_DIR / "posts"
 LOGS_DIR      = BASE_DIR / "logs"
 GITHUB_STEP_SUMMARY = os.getenv("GITHUB_STEP_SUMMARY")  # set automatically by GitHub Actions
 
-MAX_EMAIL_ATTACHMENT_MB = 24  # Gmail rejects over 25MB
+MAX_EMAIL_ATTACHMENT_MB = 24
 
 
 def setup_logging() -> logging.Logger:
@@ -501,38 +498,39 @@ def save_post(item_name: str, caption: str) -> Path:
 
 
 def send_email(item_name: str, caption: str, video_path: Optional[Path] = None) -> None:
-    """Send the caption + video attachment to the cafe owner via Gmail SMTP."""
-    if not all([GMAIL_SENDER, GMAIL_APP_PASSWORD, OWNER_EMAIL]):
-        print("Email credentials not set — skipping email. Add them to your .env file.")
+    """Send the caption + video attachment to the cafe owner via Resend."""
+    if not RESEND_API_KEY or not OWNER_EMAIL:
+        print("RESEND_API_KEY or OWNER_EMAIL not set — skipping email.")
         return
 
+    import resend
+    resend.api_key = RESEND_API_KEY
+
     today_str = date.today().strftime("%B %d, %Y")
-    subject   = f"☕ Today's Instagram Post – {item_name} | {today_str}"
-    body      = f"{caption}\n\n---\nReview and post to Instagram when ready.\n"
+    subject   = f"Today's Instagram Post – {item_name} | {today_str}"
+    body      = f"{caption}\n\n---\nReview and post to Instagram when ready."
 
-    msg = MIMEMultipart()
-    msg["From"]    = GMAIL_SENDER
-    msg["To"]      = OWNER_EMAIL
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
+    params: resend.Emails.SendParams = {
+        "from": RESEND_FROM,
+        "to": [OWNER_EMAIL],
+        "subject": subject,
+        "text": body,
+    }
 
+    # Attach video if available and within size limit
     if video_path and video_path.exists():
         size_mb = video_path.stat().st_size / (1024 * 1024)
         if size_mb > MAX_EMAIL_ATTACHMENT_MB:
-            print(f"Video too large to attach ({size_mb:.1f}MB > {MAX_EMAIL_ATTACHMENT_MB}MB) — sending caption only.")
+            print(f"Video too large to attach ({size_mb:.1f}MB) — sending caption only.")
         else:
-            with open(video_path, "rb") as f:
-                part = MIMEBase("video", "mp4")
-                part.set_payload(f.read())
-            encoders.encode_base64(part)
-            part.add_header("Content-Disposition", "attachment", filename=video_path.name)
-            msg.attach(part)
+            params["attachments"] = [{
+                "filename": video_path.name,
+                "content": list(video_path.read_bytes()),
+            }]
             print(f"Video attached: {video_path.name} ({size_mb:.1f}MB)")
 
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(GMAIL_SENDER, GMAIL_APP_PASSWORD)
-            server.send_message(msg)
+        resend.Emails.send(params)
         print(f"Email sent to {OWNER_EMAIL}")
     except Exception as err:
         print(f"Email failed: {err}")

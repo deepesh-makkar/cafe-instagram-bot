@@ -39,8 +39,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           CAFE_NAME: ${{ secrets.CAFE_NAME }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
