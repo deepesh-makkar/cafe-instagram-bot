@@ -1,0 +1,12 @@
+14:04:43  INFO      Chapas - Chai Ki Pyaas — Daily Instagram Post Generator starting
+14:04:44  INFO      Today's item: Kulhad Masala Chai  (#11 of 91)
+14:04:50  INFO      Caption generated:
+----------------------------------------
+Mitti ki khushbu, masalon ka tadka, aur pehli sip mein hi ghar jaisi feeling ☕🌿 Yahi toh hai Chapas ka Kulhad Masala Chai — simple nahi, special hai. Aao, ek cutting life se nahi, ek kulhad bhar pyaar se shuru karo apna din!
+
+#ChapasChaiKiPyaas #KulhadChai #MalviyaNagarJaipur #ChaiLovers
+----------------------------------------
+14:04:50  INFO      Generating slideshow video...
+14:06:02  ERROR     Video generation failed: upstream connect error or disconnect/reset before headers. reset reason: connection timeout
+14:06:02  INFO      Sending email with caption only — video skipped.
+14:06:02  INFO      Done! Have a great day at the cafe. ☕
