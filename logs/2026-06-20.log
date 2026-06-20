@@ -1,0 +1,12 @@
+11:27:55  INFO      Chapas - Chai Ki Pyaas — Daily Instagram Post Generator starting
+11:27:56  INFO      Today's item: Green Apple Mojita  (#26 of 91)
+11:27:59  INFO      Caption generated:
+----------------------------------------
+Tart, fizzy, and refreshingly cool — our Green Apple Mojita is basically summer in a glass. 🍏✨ Pull up a chair, take a sip, and let the good vibes roll at Chapas.
+
+#ChapasChai #GreenAppleMojita #MalviyaNagar #ChaiKiPyaas
+----------------------------------------
+11:27:59  INFO      Generating slideshow video...
+11:29:00  ERROR     Video generation failed: Error code: 429 - {'error': {'message': 'Rate limit reached for gpt-image-2 (for limit gpt-image) in organization org-aZSVCRCl0zeLmqMD6wYgFmq3 on input-images per min: Limit 5, Used 5, Requested 1. Please try again in 12s. Visit https://platform.openai.com/account/rate-limits to learn more.', 'type': 'input-images', 'param': None, 'code': 'rate_limit_exceeded'}}
+11:29:00  INFO      Sending email with caption only — video skipped.
+11:29:01  INFO      Done! Have a great day at the cafe. ☕
