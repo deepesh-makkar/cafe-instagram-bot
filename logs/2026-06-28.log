@@ -1,0 +1,12 @@
+07:12:42  INFO      Chapas - Chai Ki Pyaas — Daily Instagram Post Generator starting
+07:12:43  INFO      Today's item: Chilli Guava Lemonada  (#34 of 91)
+07:12:46  INFO      Caption generated:
+----------------------------------------
+Sweet, tangy, and just the right amount of spicy — our Chilli Guava Lemonada is that unexpected combo you didn't know you needed. Come in, take a sip, and let it surprise you. ☀️🌶️
+
+#ChapasChaiKiPyaas #ChilliGuavaLemonada #MalviyaNagarJaipur #JaipurCafe
+----------------------------------------
+07:12:46  INFO      Generating slideshow video...
+07:13:39  ERROR     Video generation failed: Error code: 429 - {'error': {'message': 'Rate limit reached for gpt-image-2 (for limit gpt-image) in organization org-aZSVCRCl0zeLmqMD6wYgFmq3 on input-images per min: Limit 5, Used 5, Requested 1. Please try again in 12s. Visit https://platform.openai.com/account/rate-limits to learn more.', 'type': 'input-images', 'param': None, 'code': 'rate_limit_exceeded'}}
+07:13:39  INFO      Sending email with caption only — video skipped.
+07:13:39  INFO      Done! Have a great day at the cafe. ☕
