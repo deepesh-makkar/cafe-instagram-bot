@@ -2,7 +2,7 @@
 """
 Cafe Daily Instagram Post Generator
 Picks one menu item per day, generates a caption with Claude AI,
-creates a 15-second slideshow video with DALL-E images,
+generates a set of marketing images with gpt-image-2, zips them up,
 emails everything to the cafe owner, and saves local backups.
 """
 
@@ -10,12 +10,9 @@ import base64
 import logging
 import os
 import json
-import random
 import re
-import shutil
-import subprocess
 import tempfile
-import urllib.request
+import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
@@ -36,7 +33,6 @@ RESEND_API_KEY      = os.getenv("RESEND_API_KEY")   # resend.com — for sending
 OWNER_EMAIL         = os.getenv("OWNER_EMAIL")
 CAFE_NAME           = os.getenv("CAFE_NAME", "Our Cafe")
 CAFE_LOCATION       = os.getenv("CAFE_LOCATION", "Malviya Nagar, Jaipur")
-PIXABAY_API_KEY     = os.getenv("PIXABAY_API_KEY")  # free at pixabay.com/api/docs/
 
 # Resend requires a verified from address — default is their shared domain for free accounts
 RESEND_FROM         = "Chapas Bot <onboarding@resend.dev>"
@@ -77,7 +73,7 @@ def setup_logging() -> logging.Logger:
     return logger
 
 
-def write_github_summary(item_name: str, caption: str, video_ok: bool, email_ok: bool) -> None:
+def write_github_summary(item_name: str, caption: str, images_ok: bool, email_ok: bool) -> None:
     """Write a summary card to the GitHub Actions job summary page."""
     if not GITHUB_STEP_SUMMARY:
         return
@@ -85,7 +81,7 @@ def write_github_summary(item_name: str, caption: str, video_ok: bool, email_ok:
         f.write(f"## ☕ Today's Post — {item_name}\n\n")
         f.write(f"```\n{caption}\n```\n\n")
         f.write(f"| Step | Status |\n|---|---|\n")
-        f.write(f"| Video generated | {'✅' if video_ok else '⚠️ skipped'} |\n")
+        f.write(f"| Images generated | {'✅' if images_ok else '⚠️ skipped'} |\n")
         f.write(f"| Email sent | {'✅' if email_ok else '❌ failed'} |\n")
 
 # ── Menu parsing ─────────────────────────────────────────────────────────────
@@ -204,7 +200,15 @@ def generate_caption(item_name: str) -> str:
         "- Is exactly 2–3 sentences — crisp, no fluff\n"
         "- Sounds warm and conversational, like a friendly barista\n"
         "- Highlights what makes this item special in one vivid line\n"
-        "- Ends with 3–4 relevant hashtags on a new line\n"
+        "- Where it genuinely fits, weave in a light touch of CURRENT Indian internet/meme "
+        "culture that Instagram audiences here would recognise — a popular desi meme "
+        "format, a trending relatable phrase, or Hinglish humor commonly used in Indian "
+        "food/cafe social posts (e.g. 'red flag/green flag', 'it's giving...', 'ambani "
+        "wedding' style exaggeration, 'ye toh scene hi alag hai', 'main character energy', "
+        "office-chai/Monday-mood relatable bits). Keep it natural and tasteful — never "
+        "forced, and skip it entirely if no reference fits this item well.\n"
+        "- Ends with 3–4 relevant hashtags on a new line (mix trending Indian food/cafe "
+        "hashtags with item-specific ones)\n"
         "- Does NOT mention the price\n\n"
         "Write only the caption — nothing else."
     )
@@ -225,14 +229,14 @@ def generate_caption(item_name: str) -> str:
 
 
 def generate_image_prompts(item_name: str) -> list[str]:
-    """Ask Claude to write 8 DALL-E image prompts for the slideshow."""
+    """Ask Claude to write 8 DALL-E image prompts for a marketing photo set."""
     print("  Writing image prompts...")
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     prompt = (
-        f"You are helping create an 8-slide Instagram Reel for '{item_name}' "
-        f"from {CAFE_NAME}, a chai cafe in Jaipur, India.\n\n"
+        f"You are helping create an 8-image Instagram marketing photo set for "
+        f"'{item_name}' from {CAFE_NAME}, a chai cafe in Jaipur, India.\n\n"
         "Write exactly 8 DALL-E image prompts in this order (most dramatic first):\n"
         "1. HERO SHOT — the final item beautifully presented, most mouth-watering angle\n"
         "2. Extreme close-up of the most appetising detail (steam rising, condensation, texture, colour)\n"
@@ -316,174 +320,16 @@ def generate_images(prompts: list[str], tmp_dir: Path) -> list[Path]:
 
     return paths
 
-# ── Music fetching ───────────────────────────────────────────────────────────
+# ── Zip creation ──────────────────────────────────────────────────────────────
 
-# A varied pool of moods — one is picked at random each day so every reel feels fresh.
-# Mix of vibes that work well for food/cafe content.
-MUSIC_MOODS = [
-    "lofi chill",
-    "lofi cafe",
-    "upbeat acoustic",
-    "indian lofi",
-    "happy background",
-    "acoustic guitar cafe",
-    "chill beats",
-    "warm ambient",
-    "bossa nova cafe",
-    "positive uplifting",
-    "indie pop background",
-    "soft piano",
-]
-
-
-def fetch_random_music(tmp_dir: Path) -> Optional[Path]:
-    """
-    Pick a random mood, search Pixabay for a matching royalty-free track,
-    download it to tmp_dir, and return the path. Returns None on any failure
-    so the video still gets made — just without music.
-    """
-    if not PIXABAY_API_KEY:
-        return None
-
-    mood = random.choice(MUSIC_MOODS)
-    print(f"  Fetching music: '{mood}'...")
-
-    try:
-        import urllib.parse
-        query = urllib.parse.quote(mood)
-        # Pixabay music API endpoint
-        url = (
-            f"https://pixabay.com/api/music/"
-            f"?key={PIXABAY_API_KEY}&q={query}&per_page=20"
-        )
-        with urllib.request.urlopen(url, timeout=15) as resp:
-            data = json.loads(resp.read())
-
-        hits = data.get("hits", [])
-        if not hits:
-            # Fallback to plain "lofi" if the specific mood returns nothing
-            fallback_url = (
-                f"https://pixabay.com/api/music/"
-                f"?key={PIXABAY_API_KEY}&q=lofi&per_page=20"
-            )
-            with urllib.request.urlopen(fallback_url, timeout=15) as resp:
-                hits = json.loads(resp.read()).get("hits", [])
-
-        if not hits:
-            print("  No music found on Pixabay — video will be silent.")
-            return None
-
-        # Pick randomly from the top 10 results so we don't always get the same track
-        track = random.choice(hits[:10])
-        audio_url = track.get("audio") or track.get("url")
-        if not audio_url:
-            return None
-
-        music_path = tmp_dir / "music.mp3"
-        urllib.request.urlretrieve(audio_url, music_path)
-        print(f"  Music ready: '{mood}' vibe ({track.get('duration', '?')}s track)")
-        return music_path
-
-    except Exception as err:
-        print(f"  Music fetch failed ({err}) — continuing without music.")
-        return None
-
-
-# ── Video creation ────────────────────────────────────────────────────────────
-
-SLIDE_DURATION = 1.5    # seconds per slide  (8 × 1.5 = 12 s total)
-FPS            = 30     # 30fps for smoother feel on fast cuts
-OUTPUT_W       = 720
-OUTPUT_H       = 1280   # 9:16 vertical — fills the full Instagram Reels screen
-
-
-def _check_ffmpeg() -> bool:
-    return shutil.which("ffmpeg") is not None
-
-
-def create_video(image_paths: list[Path], item_name: str, output_path: Path, music_path: Optional[Path] = None) -> Path:
-    """
-    Stitch images into a 9:16 MP4 slideshow with:
-    - Blurred background fill (square food images fill the vertical frame beautifully)
-    - Item name text overlay on every slide
-    - Optional background music from assets/music.mp3
-    """
-    if not _check_ffmpeg():
-        raise RuntimeError("ffmpeg is not installed. Install it with: brew install ffmpeg")
-
-    print("Creating video...")
-    n = len(image_paths)
-
-    # Each image looped for SLIDE_DURATION seconds
-    inputs = []
-    for img in image_paths:
-        inputs += ["-loop", "1", "-t", str(SLIDE_DURATION), "-i", str(img)]
-
-    # Escape item name for ffmpeg drawtext (colons and special chars break the filter)
-    safe_name = re.sub(r"[:\\']", "", item_name)
-
-    # Build filter_complex:
-    # For each slide: split into blurred background + centred foreground, overlay them.
-    # Then concat all slides, then add text overlay.
-    filter_parts = []
-    for i in range(n):
-        # Scale image to fit 720×720, then pad to 720×1280 with black bars top/bottom
-        # Simple, clean, works with any ffmpeg build — no blur filters needed
-        filter_parts.append(
-            f"[{i}:v]scale={OUTPUT_W}:{OUTPUT_W}:force_original_aspect_ratio=decrease,"
-            f"pad={OUTPUT_W}:{OUTPUT_H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1[v{i}]"
-        )
-
-    # Concatenate all slides
-    concat_inputs = "".join(f"[v{i}]" for i in range(n))
-    filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=0[concat]")
-
-    # Text overlay — item name centred near the bottom with a semi-transparent pill
-    filter_parts.append(
-        f"[concat]drawtext="
-        f"text='{safe_name}':"
-        f"fontsize=52:fontcolor=white:"
-        f"x=(w-text_w)/2:y=h-160:"
-        f"shadowcolor=black@0.8:shadowx=2:shadowy=2:"
-        f"box=1:boxcolor=black@0.45:boxborderw=14"
-        f"[final]"
-    )
-
-    filter_complex = ";".join(filter_parts)
-
-    # Base ffmpeg command
-    cmd = ["ffmpeg", "-y"] + inputs
-
-    # Add music input if a track was provided
-    has_music = music_path is not None and music_path.exists()
-    if has_music:
-        total_duration = n * SLIDE_DURATION
-        fade_start = max(0, total_duration - 1.5)
-        cmd += ["-stream_loop", "-1", "-i", str(music_path)]
-        print(f"  Mixing in music: {music_path.name}")
-
-    cmd += ["-filter_complex", filter_complex, "-map", "[final]"]
-
-    if has_music:
-        music_input_index = n  # music is the (n+1)-th input, 0-indexed = n
-        cmd += [
-            "-map", f"{music_input_index}:a",
-            "-af", f"afade=t=out:st={fade_start}:d=1.5",
-            "-shortest",
-        ]
-
-    cmd += [
-        "-r", str(FPS),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-preset", "ultrafast",
-        str(output_path),
-    ]
-
-    result = subprocess.run(cmd, capture_output=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed:\n{result.stderr.decode()}")
-
-    print(f"  Video saved: {output_path.name}")
+def zip_images(image_paths: list[Path], item_name: str, output_path: Path) -> Path:
+    """Zip up the generated images into a single downloadable file."""
+    print("Zipping images...")
+    safe_name = re.sub(r"[^\w\-]+", "_", item_name).strip("_")
+    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i, img in enumerate(image_paths, 1):
+            zf.write(img, arcname=f"{safe_name}_{i}{img.suffix}")
+    print(f"  Zip saved: {output_path.name} ({output_path.stat().st_size/1024:.0f} KB)")
     return output_path
 
 # ── Save & email ───────────────────────────────────────────────────────────────
@@ -498,8 +344,8 @@ def save_post(item_name: str, caption: str) -> Path:
     return filepath
 
 
-def send_email(item_name: str, caption: str, video_path: Optional[Path] = None) -> None:
-    """Send the caption + video attachment to the cafe owner via Resend."""
+def send_email(item_name: str, caption: str, zip_path: Optional[Path] = None) -> None:
+    """Send the caption + a zip of images to the cafe owner via Resend."""
     if not RESEND_API_KEY or not OWNER_EMAIL:
         print("RESEND_API_KEY or OWNER_EMAIL not set — skipping email.")
         return
@@ -518,17 +364,17 @@ def send_email(item_name: str, caption: str, video_path: Optional[Path] = None) 
         "text": body,
     }
 
-    # Attach video if available and within size limit
-    if video_path and video_path.exists():
-        size_mb = video_path.stat().st_size / (1024 * 1024)
+    # Attach the image zip if available and within size limit
+    if zip_path and zip_path.exists():
+        size_mb = zip_path.stat().st_size / (1024 * 1024)
         if size_mb > MAX_EMAIL_ATTACHMENT_MB:
-            print(f"Video too large to attach ({size_mb:.1f}MB) — sending caption only.")
+            print(f"Zip too large to attach ({size_mb:.1f}MB) — sending caption only.")
         else:
             params["attachments"] = [{
-                "filename": video_path.name,
-                "content": list(video_path.read_bytes()),
+                "filename": zip_path.name,
+                "content": list(zip_path.read_bytes()),
             }]
-            print(f"Video attached: {video_path.name} ({size_mb:.1f}MB)")
+            print(f"Zip attached: {zip_path.name} ({size_mb:.1f}MB)")
 
     try:
         resend.Emails.send(params)
@@ -570,40 +416,39 @@ def main() -> None:
     # 4. Save caption locally
     save_post(item_name, caption)
 
-    # 5. Generate video (DALL-E images → MP4)
-    video_path = None
-    video_ok   = False
+    # 5. Generate images (gpt-image-2) and zip them up
+    zip_path  = None
+    images_ok = False
     if OPENAI_API_KEY:
         try:
-            log.info("Generating slideshow video...")
+            log.info("Generating marketing images...")
             with tempfile.TemporaryDirectory() as tmp:
                 tmp_path    = Path(tmp)
                 prompts     = generate_image_prompts(item_name)
                 image_paths = generate_images(prompts, tmp_path)
-                music_path  = fetch_random_music(tmp_path)  # fresh random track every run
                 POSTS_DIR.mkdir(exist_ok=True)
-                video_path = create_video(image_paths, item_name, POSTS_DIR / f"{today_str}.mp4", music_path)
-                video_ok   = True
-                video_mb   = video_path.stat().st_size / (1024 * 1024)
+                zip_path    = zip_images(image_paths, item_name, POSTS_DIR / f"{today_str}.zip")
+                images_ok   = True
+                zip_mb      = zip_path.stat().st_size / (1024 * 1024)
                 total_images_kb = sum(p.stat().st_size for p in image_paths) / 1024
-                log.info(f"Video saved: {video_path.name} ({video_mb:.1f} MB)")
-                log.info(f"Images total: {total_images_kb:.0f} KB across {len(image_paths)} slides")
+                log.info(f"Zip saved: {zip_path.name} ({zip_mb:.1f} MB)")
+                log.info(f"Images total: {total_images_kb:.0f} KB across {len(image_paths)} images")
         except Exception as err:
-            log.error(f"Video generation failed: {err}")
-            log.info("Sending email with caption only — video skipped.")
+            log.error(f"Image generation failed: {err}")
+            log.info("Sending email with caption only — images skipped.")
     else:
-        log.warning("OPENAI_API_KEY not set — skipping video generation.")
+        log.warning("OPENAI_API_KEY not set — skipping image generation.")
 
-    # 6. Email the owner with video attached
+    # 6. Email the owner with the image zip attached
     email_ok = False
     try:
-        send_email(item_name, caption, video_path)
+        send_email(item_name, caption, zip_path)
         email_ok = True
     except Exception as err:
         log.error(f"Email failed: {err}")
 
     # 7. Write GitHub Actions summary
-    write_github_summary(item_name, caption, video_ok, email_ok)
+    write_github_summary(item_name, caption, images_ok, email_ok)
 
     # 8. Advance the tracker so tomorrow picks the next item
     save_tracker(new_index)

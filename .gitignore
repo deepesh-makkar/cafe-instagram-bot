@@ -2,8 +2,5 @@
 posts/
 __pycache__/
 *.pyc
-_tmp_clips/
 .claude/
-assets/music/
-*.mp3
 

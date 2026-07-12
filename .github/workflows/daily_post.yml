@@ -24,14 +24,6 @@ jobs:
           python-version: "3.11"
           cache: "pip"  # caches pip packages between runs
 
-      - name: Install ffmpeg
-        # apt-get ffmpeg includes all filters (drawtext, gblur, etc.)
-        # The old static binary from johnvansickle.com was missing these
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --fix-missing ffmpeg
-          ffmpeg -version | head -1
-
       - name: Install dependencies
         run: pip install -r requirements.txt
 
@@ -43,7 +35,6 @@ jobs:
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           CAFE_NAME: ${{ secrets.CAFE_NAME }}
           CAFE_LOCATION: ${{ secrets.CAFE_LOCATION }}
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: python post_generator.py
 
       # Commit tracker.json and logs back so tomorrow knows which item comes next
