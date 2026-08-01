@@ -1,0 +1,12 @@
+06:12:34  INFO      Chapas - Chai Ki Pyaas — Daily Instagram Post Generator starting
+06:12:35  INFO      Today's item: French Fries  (#68 of 91)
+06:12:37  INFO      Caption generated:
+----------------------------------------
+Crispy on the outside, fluffy on the inside — our French Fries are the perfect sidekick to your evening chai. Grab a plate, find your spot, and let the good vibes roll. 🍟✨
+
+#Chapas #ChaiKiPyaas #MalviyaNagar #FrenchFries
+----------------------------------------
+06:12:37  INFO      Generating slideshow video...
+06:13:40  ERROR     Video generation failed: Error code: 429 - {'error': {'message': 'Rate limit reached for gpt-image-2 (for limit gpt-image) in organization org-aZSVCRCl0zeLmqMD6wYgFmq3 on input-images per min: Limit 5, Used 5, Requested 1. Please try again in 12s. Visit https://platform.openai.com/account/rate-limits to learn more.', 'type': 'input-images', 'param': None, 'code': 'rate_limit_exceeded'}}
+06:13:40  INFO      Sending email with caption only — video skipped.
+06:13:40  INFO      Done! Have a great day at the cafe. ☕
